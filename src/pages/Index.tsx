@@ -456,6 +456,10 @@ const Index = () => {
                   }
                 }}
                 canSplit={canSplitSelected}
+                onExtractAudio={
+                  selectedClip ? () => handleExtractAudio(selectedClip) : undefined
+                }
+                extracting={extractingClipId === selectedClip?.id}
               />
 
               <h3 className="text-sm font-semibold text-muted-foreground uppercase tracking-wider flex items-center gap-2 pt-2">
