@@ -198,30 +198,46 @@ export const Timeline = ({
       const t = dragState.initial;
       const len = t.timelineEnd - t.timelineStart;
       const sourceMax = Math.max(0, t.duration - t.clipStart);
+      // Hold Alt to temporarily disable snapping (InShot-style)
+      const snapActive = snapEnabled && !e.altKey;
+      const targets = buildMusicSnapTargets(t.id);
 
       if (dragState.mode === "move") {
         let newStart = t.timelineStart + dt;
         newStart = Math.max(0, Math.min(videoDuration - len, newStart));
+        // Try snapping the start edge first; if it doesn't snap, try the end edge
+        const snappedStart = snap(newStart, targets, snapActive);
+        if (snappedStart !== newStart) {
+          newStart = Math.max(0, Math.min(videoDuration - len, snappedStart));
+        } else {
+          const snappedEnd = snap(newStart + len, targets, snapActive);
+          if (snappedEnd !== newStart + len) {
+            newStart = Math.max(0, Math.min(videoDuration - len, snappedEnd - len));
+          }
+        }
         onUpdateTrack(t.id, { timelineStart: newStart, timelineEnd: newStart + len });
       } else if (dragState.mode === "resize-left") {
         let newStart = t.timelineStart + dt;
+        newStart = snap(newStart, targets, snapActive);
         newStart = Math.max(0, Math.min(t.timelineEnd - 0.2, newStart));
         const shift = newStart - t.timelineStart;
         const newClipStart = Math.max(0, Math.min(t.duration - 0.1, t.clipStart + shift));
         onUpdateTrack(t.id, { timelineStart: newStart, clipStart: newClipStart });
       } else if (dragState.mode === "resize-right") {
         let newEnd = t.timelineEnd + dt;
+        newEnd = snap(newEnd, targets, snapActive);
         const maxEnd = t.loop ? videoDuration : Math.min(videoDuration, t.timelineStart + sourceMax);
         newEnd = Math.max(t.timelineStart + 0.2, Math.min(maxEnd, newEnd));
         onUpdateTrack(t.id, { timelineEnd: newEnd });
       }
     },
-    [dragState, clipDrag, pxPerSec, videoDuration, onUpdateTrack, onUpdateClip]
+    [dragState, clipDrag, pxPerSec, videoDuration, onUpdateTrack, onUpdateClip, snapEnabled, snap, buildMusicSnapTargets]
   );
 
   const endDrag = useCallback(() => {
     setDragState(null);
     setClipDrag(null);
+    setSnapLine(null);
   }, []);
 
   const handleRulerClick = (e: React.MouseEvent) => {
