@@ -1,4 +1,4 @@
-import { Film, Image as ImageIcon, Scissors } from "lucide-react";
+import { Film, Image as ImageIcon, Scissors, AudioLines, Loader2 } from "lucide-react";
 import { MediaClip, clipLength } from "@/types/clip";
 import { Slider } from "@/components/ui/slider";
 import { Label } from "@/components/ui/label";
@@ -11,9 +11,18 @@ interface ClipEditorProps {
   onUpdate: (patch: Partial<MediaClip>) => void;
   onSplit?: () => void;
   canSplit?: boolean;
+  onExtractAudio?: () => void;
+  extracting?: boolean;
 }
 
-export const ClipEditor = ({ clip, onUpdate, onSplit, canSplit }: ClipEditorProps) => {
+export const ClipEditor = ({
+  clip,
+  onUpdate,
+  onSplit,
+  canSplit,
+  onExtractAudio,
+  extracting,
+}: ClipEditorProps) => {
   if (!clip) {
     return (
       <div className="gradient-card rounded-2xl p-6 shadow-soft border border-border text-center">
