@@ -1,10 +1,15 @@
 import { useRef, useState, useCallback } from "react";
-import { Music, X, Film, Image as ImageIcon, Scissors } from "lucide-react";
+import { Music, X, Film, Image as ImageIcon, Scissors, Magnet } from "lucide-react";
 import { MusicTrack } from "@/types/music";
 import { MediaClip, clipLength, totalDuration } from "@/types/clip";
 import { formatTime } from "@/lib/mediaUtils";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
+
+/** Snap distance in pixels — converted to seconds at runtime via pxPerSec */
+const SNAP_PX = 8;
+/** Coarse grid interval (seconds) used as fallback snap targets */
+const GRID_INTERVAL = 0.5;
 
 interface TimelineProps {
   clips: MediaClip[];
@@ -67,10 +72,69 @@ export const Timeline = ({
     initial: MediaClip;
   } | null>(null);
 
+  const [snapEnabled, setSnapEnabled] = useState(true);
+  const [snapLine, setSnapLine] = useState<number | null>(null);
+
   const pxPerSec = (() => {
     const w = containerRef.current?.clientWidth ?? 600;
     return videoDuration > 0 ? w / videoDuration : 0;
   })();
+
+  /**
+   * Try to snap `value` (in seconds) to one of the provided targets.
+   * Returns the snapped value, or the original if nothing is close enough.
+   * Also reports the snapped target via setSnapLine so we can render a guide.
+   */
+  const snap = useCallback(
+    (value: number, targets: number[], active: boolean): number => {
+      if (!active || pxPerSec === 0) {
+        setSnapLine(null);
+        return value;
+      }
+      const thresholdSec = SNAP_PX / pxPerSec;
+      let best: number | null = null;
+      let bestDist = Infinity;
+      for (const t of targets) {
+        const d = Math.abs(t - value);
+        if (d < bestDist && d <= thresholdSec) {
+          best = t;
+          bestDist = d;
+        }
+      }
+      if (best !== null) {
+        setSnapLine(best);
+        return best;
+      }
+      setSnapLine(null);
+      return value;
+    },
+    [pxPerSec]
+  );
+
+  /** Build the list of snap targets relevant for music drags */
+  const buildMusicSnapTargets = useCallback(
+    (excludeTrackId: string): number[] => {
+      const targets: number[] = [0, videoDuration, currentTime];
+      // Clip boundaries (start/end of each video/image clip)
+      let acc = 0;
+      for (const c of clips) {
+        targets.push(acc);
+        acc += clipLength(c);
+      }
+      targets.push(acc);
+      // Other music track edges
+      for (const t of tracks) {
+        if (t.id === excludeTrackId) continue;
+        targets.push(t.timelineStart, t.timelineEnd);
+      }
+      // Coarse grid
+      for (let g = 0; g <= videoDuration + 0.001; g += GRID_INTERVAL) {
+        targets.push(Math.round(g * 1000) / 1000);
+      }
+      return targets;
+    },
+    [clips, tracks, videoDuration, currentTime]
+  );
 
   const beginDrag = useCallback(
     (e: React.MouseEvent, track: MusicTrack, mode: DragMode) => {
@@ -134,30 +198,46 @@ export const Timeline = ({
       const t = dragState.initial;
       const len = t.timelineEnd - t.timelineStart;
       const sourceMax = Math.max(0, t.duration - t.clipStart);
+      // Hold Alt to temporarily disable snapping (InShot-style)
+      const snapActive = snapEnabled && !e.altKey;
+      const targets = buildMusicSnapTargets(t.id);
 
       if (dragState.mode === "move") {
         let newStart = t.timelineStart + dt;
         newStart = Math.max(0, Math.min(videoDuration - len, newStart));
+        // Try snapping the start edge first; if it doesn't snap, try the end edge
+        const snappedStart = snap(newStart, targets, snapActive);
+        if (snappedStart !== newStart) {
+          newStart = Math.max(0, Math.min(videoDuration - len, snappedStart));
+        } else {
+          const snappedEnd = snap(newStart + len, targets, snapActive);
+          if (snappedEnd !== newStart + len) {
+            newStart = Math.max(0, Math.min(videoDuration - len, snappedEnd - len));
+          }
+        }
         onUpdateTrack(t.id, { timelineStart: newStart, timelineEnd: newStart + len });
       } else if (dragState.mode === "resize-left") {
         let newStart = t.timelineStart + dt;
+        newStart = snap(newStart, targets, snapActive);
         newStart = Math.max(0, Math.min(t.timelineEnd - 0.2, newStart));
         const shift = newStart - t.timelineStart;
         const newClipStart = Math.max(0, Math.min(t.duration - 0.1, t.clipStart + shift));
         onUpdateTrack(t.id, { timelineStart: newStart, clipStart: newClipStart });
       } else if (dragState.mode === "resize-right") {
         let newEnd = t.timelineEnd + dt;
+        newEnd = snap(newEnd, targets, snapActive);
         const maxEnd = t.loop ? videoDuration : Math.min(videoDuration, t.timelineStart + sourceMax);
         newEnd = Math.max(t.timelineStart + 0.2, Math.min(maxEnd, newEnd));
         onUpdateTrack(t.id, { timelineEnd: newEnd });
       }
     },
-    [dragState, clipDrag, pxPerSec, videoDuration, onUpdateTrack, onUpdateClip]
+    [dragState, clipDrag, pxPerSec, videoDuration, onUpdateTrack, onUpdateClip, snapEnabled, snap, buildMusicSnapTargets]
   );
 
   const endDrag = useCallback(() => {
     setDragState(null);
     setClipDrag(null);
+    setSnapLine(null);
   }, []);
 
   const handleRulerClick = (e: React.MouseEvent) => {
@@ -215,6 +295,19 @@ export const Timeline = ({
         >
           <Scissors className="h-3.5 w-3.5 mr-1" />
           Split at playhead
+        </Button>
+        <Button
+          size="sm"
+          variant={snapEnabled ? "default" : "outline"}
+          onClick={() => setSnapEnabled((s) => !s)}
+          className={cn(
+            "h-7 text-xs",
+            snapEnabled && "gradient-primary text-primary-foreground border-0 hover:opacity-90"
+          )}
+          title="Snap to grid, clip edges, and playhead (hold Alt to disable while dragging)"
+        >
+          <Magnet className="h-3.5 w-3.5 mr-1" />
+          Snap {snapEnabled ? "On" : "Off"}
         </Button>
       </div>
 
@@ -301,7 +394,16 @@ export const Timeline = ({
       </div>
 
       {/* Music tracks */}
-      <div className="space-y-2">
+      <div className="space-y-2 relative">
+        {snapLine !== null && dragState && (
+          <div
+            className="absolute -top-1 -bottom-1 w-px bg-accent z-30 pointer-events-none shadow-[0_0_6px_hsl(var(--accent))]"
+            style={{ left: `${(snapLine / videoDuration) * 100}%` }}
+          >
+            <div className="absolute -top-1 -left-[3px] w-[7px] h-[7px] rounded-full bg-accent" />
+            <div className="absolute -bottom-1 -left-[3px] w-[7px] h-[7px] rounded-full bg-accent" />
+          </div>
+        )}
         {tracks.length === 0 && (
           <div className="h-12 rounded-md border border-dashed border-border flex items-center justify-center text-xs text-muted-foreground">
             Add a music track to begin
