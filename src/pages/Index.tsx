@@ -202,6 +202,8 @@ const Index = () => {
     },
     [clips]
   );
+
+  const updateTrack = useCallback((id: string, patch: Partial<MusicTrack>) => {
     setTracks((prev) => prev.map((t) => (t.id === id ? { ...t, ...patch } : t)));
   }, []);
 
