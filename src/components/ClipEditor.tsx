@@ -1,4 +1,4 @@
-import { Film, Image as ImageIcon, Scissors } from "lucide-react";
+import { Film, Image as ImageIcon, Scissors, AudioLines, Loader2 } from "lucide-react";
 import { MediaClip, clipLength } from "@/types/clip";
 import { Slider } from "@/components/ui/slider";
 import { Label } from "@/components/ui/label";
@@ -11,9 +11,18 @@ interface ClipEditorProps {
   onUpdate: (patch: Partial<MediaClip>) => void;
   onSplit?: () => void;
   canSplit?: boolean;
+  onExtractAudio?: () => void;
+  extracting?: boolean;
 }
 
-export const ClipEditor = ({ clip, onUpdate, onSplit, canSplit }: ClipEditorProps) => {
+export const ClipEditor = ({
+  clip,
+  onUpdate,
+  onSplit,
+  canSplit,
+  onExtractAudio,
+  extracting,
+}: ClipEditorProps) => {
   if (!clip) {
     return (
       <div className="gradient-card rounded-2xl p-6 shadow-soft border border-border text-center">
@@ -101,18 +110,36 @@ export const ClipEditor = ({ clip, onUpdate, onSplit, canSplit }: ClipEditorProp
         </div>
       )}
 
-      {onSplit && (
-        <Button
-          onClick={onSplit}
-          disabled={!canSplit}
-          variant="outline"
-          size="sm"
-          className="w-full"
-        >
-          <Scissors className="h-4 w-4 mr-1.5" />
-          Split at playhead
-        </Button>
-      )}
+      <div className="space-y-2">
+        {onSplit && (
+          <Button
+            onClick={onSplit}
+            disabled={!canSplit}
+            variant="outline"
+            size="sm"
+            className="w-full"
+          >
+            <Scissors className="h-4 w-4 mr-1.5" />
+            Split at playhead
+          </Button>
+        )}
+        {onExtractAudio && clip.kind === "video" && (
+          <Button
+            onClick={onExtractAudio}
+            disabled={extracting}
+            variant="outline"
+            size="sm"
+            className="w-full"
+          >
+            {extracting ? (
+              <Loader2 className="h-4 w-4 mr-1.5 animate-spin" />
+            ) : (
+              <AudioLines className="h-4 w-4 mr-1.5" />
+            )}
+            {extracting ? "Extracting..." : "Extract audio as track"}
+          </Button>
+        )}
+      </div>
     </div>
   );
 };

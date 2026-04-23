@@ -80,7 +80,8 @@ export const MultiClipPreview = ({
 
   useEffect(() => {
     if (videoEl) videoEl.playbackRate = speed;
-    trackAudioMapRef.current.forEach((t) => (t.el.playbackRate = speed));
+    // Music tracks always play at 1x — speed only affects the video.
+    trackAudioMapRef.current.forEach((t) => (t.el.playbackRate = 1));
   }, [speed, videoEl]);
 
   // Manage music audio elements
@@ -102,7 +103,7 @@ export const MultiClipPreview = ({
       const el = new Audio(url);
       el.crossOrigin = "anonymous";
       el.preload = "auto";
-      el.playbackRate = speed;
+      el.playbackRate = 1; // music never affected by speed
       try {
         const src = ctx.createMediaElementSource(el);
         const gain = ctx.createGain();
@@ -154,11 +155,15 @@ export const MultiClipPreview = ({
         ta.gain.gain.value = 0;
         return;
       }
+      // Editor-time elapsed inside the clip range. Music plays at 1x in real time,
+      // and the timeline cursor advances at `speed`x — so the music source position
+      // corresponds to elapsed/speed real-time seconds.
       const elapsed = t - track.timelineStart;
+      const elapsedReal = elapsed / Math.max(0.01, speed);
       const sourceLen = Math.max(0.01, track.duration - track.clipStart);
       const desired = track.loop
-        ? track.clipStart + (elapsed % sourceLen)
-        : track.clipStart + Math.min(elapsed, sourceLen);
+        ? track.clipStart + (elapsedReal % sourceLen)
+        : track.clipStart + Math.min(elapsedReal, sourceLen);
       if (Math.abs(ta.el.currentTime - desired) > 0.15) {
         try { ta.el.currentTime = desired; } catch {}
       }
