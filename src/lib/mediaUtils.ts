@@ -22,6 +22,27 @@ export const getMediaDuration = (
   });
 };
 
+/** Read width/height of an image file */
+export const getImageSize = (
+  file: File
+): Promise<{ width: number; height: number }> => {
+  return new Promise((resolve, reject) => {
+    const url = URL.createObjectURL(file);
+    const img = new Image();
+    img.onload = () => {
+      const w = img.naturalWidth;
+      const h = img.naturalHeight;
+      URL.revokeObjectURL(url);
+      resolve({ width: w, height: h });
+    };
+    img.onerror = () => {
+      URL.revokeObjectURL(url);
+      reject(new Error("Failed to read image"));
+    };
+    img.src = url;
+  });
+};
+
 export const formatTime = (sec: number): string => {
   if (!isFinite(sec) || sec < 0) sec = 0;
   const m = Math.floor(sec / 60);
