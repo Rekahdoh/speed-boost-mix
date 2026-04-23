@@ -1,10 +1,15 @@
 import { useRef, useState, useCallback } from "react";
-import { Music, X, Film, Image as ImageIcon, Scissors } from "lucide-react";
+import { Music, X, Film, Image as ImageIcon, Scissors, Magnet } from "lucide-react";
 import { MusicTrack } from "@/types/music";
 import { MediaClip, clipLength, totalDuration } from "@/types/clip";
 import { formatTime } from "@/lib/mediaUtils";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
+
+/** Snap distance in pixels — converted to seconds at runtime via pxPerSec */
+const SNAP_PX = 8;
+/** Coarse grid interval (seconds) used as fallback snap targets */
+const GRID_INTERVAL = 0.5;
 
 interface TimelineProps {
   clips: MediaClip[];
