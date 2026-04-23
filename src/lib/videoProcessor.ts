@@ -23,6 +23,43 @@ export const getFFmpeg = async (
   return ffmpeg;
 };
 
+/**
+ * Extract the audio track from a video file as an MP3 File.
+ * Returns null if the source has no audio.
+ */
+export const extractAudioFromVideo = async (
+  videoFile: File,
+  onLog?: (msg: string) => void
+): Promise<File> => {
+  const ffmpeg = await getFFmpeg(onLog);
+  const ext = videoFile.name.split(".").pop() || "mp4";
+  const inputName = `extract_in.${ext}`;
+  const outputName = "extract_out.mp3";
+
+  await ffmpeg.writeFile(inputName, await fetchFile(videoFile));
+
+  await ffmpeg.exec([
+    "-i", inputName,
+    "-vn",
+    "-acodec", "libmp3lame",
+    "-q:a", "2",
+    "-y",
+    outputName,
+  ]);
+
+  const data = (await ffmpeg.readFile(outputName)) as Uint8Array;
+  const buffer = new ArrayBuffer(data.byteLength);
+  new Uint8Array(buffer).set(data);
+
+  try {
+    await ffmpeg.deleteFile(inputName);
+    await ffmpeg.deleteFile(outputName);
+  } catch {}
+
+  const baseName = videoFile.name.replace(/\.[^.]+$/, "");
+  return new File([buffer], `${baseName} - audio.mp3`, { type: "audio/mpeg" });
+};
+
 interface ProcessOptions {
   clips: MediaClip[];
   tracks: MusicTrack[];
