@@ -155,11 +155,15 @@ export const MultiClipPreview = ({
         ta.gain.gain.value = 0;
         return;
       }
+      // Editor-time elapsed inside the clip range. Music plays at 1x in real time,
+      // and the timeline cursor advances at `speed`x — so the music source position
+      // corresponds to elapsed/speed real-time seconds.
       const elapsed = t - track.timelineStart;
+      const elapsedReal = elapsed / Math.max(0.01, speed);
       const sourceLen = Math.max(0.01, track.duration - track.clipStart);
       const desired = track.loop
-        ? track.clipStart + (elapsed % sourceLen)
-        : track.clipStart + Math.min(elapsed, sourceLen);
+        ? track.clipStart + (elapsedReal % sourceLen)
+        : track.clipStart + Math.min(elapsedReal, sourceLen);
       if (Math.abs(ta.el.currentTime - desired) > 0.15) {
         try { ta.el.currentTime = desired; } catch {}
       }
