@@ -296,6 +296,19 @@ export const Timeline = ({
           <Scissors className="h-3.5 w-3.5 mr-1" />
           Split at playhead
         </Button>
+        <Button
+          size="sm"
+          variant={snapEnabled ? "default" : "outline"}
+          onClick={() => setSnapEnabled((s) => !s)}
+          className={cn(
+            "h-7 text-xs",
+            snapEnabled && "gradient-primary text-primary-foreground border-0 hover:opacity-90"
+          )}
+          title="Snap to grid, clip edges, and playhead (hold Alt to disable while dragging)"
+        >
+          <Magnet className="h-3.5 w-3.5 mr-1" />
+          Snap {snapEnabled ? "On" : "Off"}
+        </Button>
       </div>
 
       {/* Ruler */}
