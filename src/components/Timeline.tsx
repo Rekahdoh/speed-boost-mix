@@ -394,7 +394,16 @@ export const Timeline = ({
       </div>
 
       {/* Music tracks */}
-      <div className="space-y-2">
+      <div className="space-y-2 relative">
+        {snapLine !== null && dragState && (
+          <div
+            className="absolute -top-1 -bottom-1 w-px bg-accent z-30 pointer-events-none shadow-[0_0_6px_hsl(var(--accent))]"
+            style={{ left: `${(snapLine / videoDuration) * 100}%` }}
+          >
+            <div className="absolute -top-1 -left-[3px] w-[7px] h-[7px] rounded-full bg-accent" />
+            <div className="absolute -bottom-1 -left-[3px] w-[7px] h-[7px] rounded-full bg-accent" />
+          </div>
+        )}
         {tracks.length === 0 && (
           <div className="h-12 rounded-md border border-dashed border-border flex items-center justify-center text-xs text-muted-foreground">
             Add a music track to begin
