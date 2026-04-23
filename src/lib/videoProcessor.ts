@@ -161,28 +161,38 @@ export const processVideo = async ({
   filters.push(`[0:a]${atempo},${volumeFilter(videoVolume)}[a_video]`);
 
   const audioMixInputs: string[] = ["[a_video]"];
+  const finalDur = videoDuration / speed;
+
   writtenTracks.forEach(({ track, index }) => {
-    const clipDur = track.timelineEnd - track.timelineStart;
+    // Editor-time range
+    const editorClipDur = track.timelineEnd - track.timelineStart;
+    // Output-time range (music is NOT sped up — it plays at 1x in real time,
+    // so we need fewer real seconds of audio when speed > 1).
+    const outClipDur = editorClipDur / speed;
+    const outDelay = track.timelineStart / speed;
+
     const sourceAvail = Math.max(0.01, track.duration - track.clipStart);
-    const needsLoop = track.loop && clipDur > sourceAvail;
+    const needsLoop = track.loop && outClipDur > sourceAvail;
 
     const parts: string[] = [];
     parts.push(`atrim=start=${track.clipStart.toFixed(3)}`);
     parts.push(`asetpts=PTS-STARTPTS`);
     if (needsLoop) parts.push(`aloop=loop=-1:size=2e9`);
-    parts.push(`atrim=duration=${clipDur.toFixed(3)}`);
+    parts.push(`atrim=duration=${outClipDur.toFixed(3)}`);
     parts.push(`asetpts=PTS-STARTPTS`);
-    if (track.fadeIn > 0) parts.push(`afade=t=in:st=0:d=${track.fadeIn.toFixed(3)}`);
+    if (track.fadeIn > 0) {
+      const fIn = Math.min(track.fadeIn, outClipDur / 2);
+      parts.push(`afade=t=in:st=0:d=${fIn.toFixed(3)}`);
+    }
     if (track.fadeOut > 0) {
-      const fadeStart = Math.max(0, clipDur - track.fadeOut);
-      parts.push(`afade=t=out:st=${fadeStart.toFixed(3)}:d=${track.fadeOut.toFixed(3)}`);
+      const fOut = Math.min(track.fadeOut, outClipDur / 2);
+      const fadeStart = Math.max(0, outClipDur - fOut);
+      parts.push(`afade=t=out:st=${fadeStart.toFixed(3)}:d=${fOut.toFixed(3)}`);
     }
     parts.push(volumeFilter(track.volume));
-    const delayMs = Math.round(track.timelineStart * 1000);
+    const delayMs = Math.round(outDelay * 1000);
     if (delayMs > 0) parts.push(`adelay=${delayMs}|${delayMs}`);
-    parts.push(atempo);
-
-    const finalDur = videoDuration / speed;
+    // No atempo on music — it stays at 1x regardless of video speed.
     parts.push(`apad`, `atrim=duration=${finalDur.toFixed(3)}`);
 
     const label = `a_t${index}`;
