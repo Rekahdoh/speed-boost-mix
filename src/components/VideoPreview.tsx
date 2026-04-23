@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 
 interface VideoPreviewProps {
   videoFile: File | null;
@@ -15,110 +15,150 @@ export const VideoPreview = ({
   videoVolume,
   musicVolume,
 }: VideoPreviewProps) => {
-  const videoRef = useRef<HTMLVideoElement>(null);
-  const audioRef = useRef<HTMLAudioElement>(null);
+  const [videoEl, setVideoEl] = useState<HTMLVideoElement | null>(null);
+  const [audioEl, setAudioEl] = useState<HTMLAudioElement | null>(null);
+
   const audioCtxRef = useRef<AudioContext | null>(null);
   const videoGainRef = useRef<GainNode | null>(null);
   const musicGainRef = useRef<GainNode | null>(null);
   const videoSrcNodeRef = useRef<MediaElementAudioSourceNode | null>(null);
   const musicSrcNodeRef = useRef<MediaElementAudioSourceNode | null>(null);
+  const connectedVideoElRef = useRef<HTMLVideoElement | null>(null);
+  const connectedAudioElRef = useRef<HTMLAudioElement | null>(null);
 
-  const videoUrl = videoFile ? URL.createObjectURL(videoFile) : "";
-  const audioUrl = audioFile ? URL.createObjectURL(audioFile) : "";
+  const [videoUrl, setVideoUrl] = useState<string>("");
+  const [audioUrl, setAudioUrl] = useState<string>("");
+
+  // Manage object URLs
+  useEffect(() => {
+    if (!videoFile) {
+      setVideoUrl("");
+      return;
+    }
+    const url = URL.createObjectURL(videoFile);
+    setVideoUrl(url);
+    return () => URL.revokeObjectURL(url);
+  }, [videoFile]);
 
   useEffect(() => {
-    return () => {
-      if (videoUrl) URL.revokeObjectURL(videoUrl);
-      if (audioUrl) URL.revokeObjectURL(audioUrl);
-    };
-  }, [videoUrl, audioUrl]);
+    if (!audioFile) {
+      setAudioUrl("");
+      return;
+    }
+    const url = URL.createObjectURL(audioFile);
+    setAudioUrl(url);
+    return () => URL.revokeObjectURL(url);
+  }, [audioFile]);
 
-  // Setup Web Audio API for >100% volume boost
+  // Connect video element to Web Audio graph
   useEffect(() => {
-    if (!videoRef.current) return;
+    if (!videoEl) return;
+    if (connectedVideoElRef.current === videoEl) return;
 
-    const setup = () => {
-      if (!audioCtxRef.current) {
-        audioCtxRef.current = new AudioContext();
-      }
-      const ctx = audioCtxRef.current;
+    if (!audioCtxRef.current) {
+      audioCtxRef.current = new AudioContext();
+    }
+    const ctx = audioCtxRef.current;
 
-      if (videoRef.current && !videoSrcNodeRef.current) {
-        try {
-          videoSrcNodeRef.current = ctx.createMediaElementSource(videoRef.current);
-          videoGainRef.current = ctx.createGain();
-          videoSrcNodeRef.current.connect(videoGainRef.current).connect(ctx.destination);
-        } catch (e) {
-          // already connected
-        }
-      }
+    try {
+      const src = ctx.createMediaElementSource(videoEl);
+      const gain = ctx.createGain();
+      gain.gain.value = videoVolume / 100;
+      src.connect(gain).connect(ctx.destination);
+      videoSrcNodeRef.current = src;
+      videoGainRef.current = gain;
+      connectedVideoElRef.current = videoEl;
+    } catch (e) {
+      console.warn("Video audio graph already connected", e);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [videoEl]);
 
-      if (audioRef.current && !musicSrcNodeRef.current) {
-        try {
-          musicSrcNodeRef.current = ctx.createMediaElementSource(audioRef.current);
-          musicGainRef.current = ctx.createGain();
-          musicSrcNodeRef.current.connect(musicGainRef.current).connect(ctx.destination);
-        } catch (e) {
-          // already connected
-        }
-      }
-    };
+  // Connect audio element to Web Audio graph
+  useEffect(() => {
+    if (!audioEl) {
+      // audio element unmounted — drop refs so a future remount reconnects
+      musicSrcNodeRef.current = null;
+      musicGainRef.current = null;
+      connectedAudioElRef.current = null;
+      return;
+    }
+    if (connectedAudioElRef.current === audioEl) return;
 
-    setup();
-  }, [videoFile, audioFile]);
+    if (!audioCtxRef.current) {
+      audioCtxRef.current = new AudioContext();
+    }
+    const ctx = audioCtxRef.current;
 
-  // Apply volumes (0-200%)
+    try {
+      const src = ctx.createMediaElementSource(audioEl);
+      const gain = ctx.createGain();
+      gain.gain.value = musicVolume / 100;
+      src.connect(gain).connect(ctx.destination);
+      musicSrcNodeRef.current = src;
+      musicGainRef.current = gain;
+      connectedAudioElRef.current = audioEl;
+    } catch (e) {
+      console.warn("Music audio graph already connected", e);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [audioEl]);
+
+  // Apply video volume (0-200%) — also mute the element directly as belt-and-suspenders
   useEffect(() => {
     if (videoGainRef.current) {
       videoGainRef.current.gain.value = videoVolume / 100;
     }
   }, [videoVolume]);
 
+  // Apply music volume (0-200%)
   useEffect(() => {
     if (musicGainRef.current) {
       musicGainRef.current.gain.value = musicVolume / 100;
     }
-  }, [musicVolume]);
+    // Also set element volume directly as a fallback (capped at 1.0)
+    if (audioEl) {
+      audioEl.volume = Math.min(1, musicVolume / 100);
+      audioEl.muted = musicVolume === 0;
+    }
+  }, [musicVolume, audioEl]);
 
   // Apply speed
   useEffect(() => {
-    if (videoRef.current) videoRef.current.playbackRate = speed;
-    if (audioRef.current) audioRef.current.playbackRate = speed;
-  }, [speed]);
+    if (videoEl) videoEl.playbackRate = speed;
+    if (audioEl) audioEl.playbackRate = speed;
+  }, [speed, videoEl, audioEl]);
 
   // Sync audio playback with video
   useEffect(() => {
-    const video = videoRef.current;
-    const audio = audioRef.current;
-    if (!video || !audio) return;
+    if (!videoEl || !audioEl) return;
 
     const onPlay = () => {
       audioCtxRef.current?.resume();
-      audio.play().catch(() => {});
+      audioEl.play().catch(() => {});
     };
-    const onPause = () => audio.pause();
+    const onPause = () => audioEl.pause();
     const onSeek = () => {
-      audio.currentTime = video.currentTime % (audio.duration || 1);
+      audioEl.currentTime = videoEl.currentTime % (audioEl.duration || 1);
     };
     const onTime = () => {
-      // loop background music
-      if (audio.duration && video.currentTime > audio.duration) {
-        audio.currentTime = video.currentTime % audio.duration;
+      if (audioEl.duration && videoEl.currentTime > audioEl.duration) {
+        audioEl.currentTime = videoEl.currentTime % audioEl.duration;
       }
     };
 
-    video.addEventListener("play", onPlay);
-    video.addEventListener("pause", onPause);
-    video.addEventListener("seeked", onSeek);
-    video.addEventListener("timeupdate", onTime);
+    videoEl.addEventListener("play", onPlay);
+    videoEl.addEventListener("pause", onPause);
+    videoEl.addEventListener("seeked", onSeek);
+    videoEl.addEventListener("timeupdate", onTime);
 
     return () => {
-      video.removeEventListener("play", onPlay);
-      video.removeEventListener("pause", onPause);
-      video.removeEventListener("seeked", onSeek);
-      video.removeEventListener("timeupdate", onTime);
+      videoEl.removeEventListener("play", onPlay);
+      videoEl.removeEventListener("pause", onPause);
+      videoEl.removeEventListener("seeked", onSeek);
+      videoEl.removeEventListener("timeupdate", onTime);
     };
-  }, [videoFile, audioFile]);
+  }, [videoEl, audioEl]);
 
   if (!videoFile) {
     return (
@@ -134,15 +174,20 @@ export const VideoPreview = ({
     <div className="space-y-3">
       <div className="rounded-2xl overflow-hidden shadow-elevated bg-black">
         <video
-          ref={videoRef}
+          ref={setVideoEl}
           src={videoUrl}
           controls
           className="w-full aspect-video"
           crossOrigin="anonymous"
         />
       </div>
-      {audioFile && (
-        <audio ref={audioRef} src={audioUrl} loop crossOrigin="anonymous" />
+      {audioFile && audioUrl && (
+        <audio
+          ref={setAudioEl}
+          src={audioUrl}
+          loop
+          crossOrigin="anonymous"
+        />
       )}
     </div>
   );
