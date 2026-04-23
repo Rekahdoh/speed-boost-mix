@@ -110,18 +110,36 @@ export const ClipEditor = ({
         </div>
       )}
 
-      {onSplit && (
-        <Button
-          onClick={onSplit}
-          disabled={!canSplit}
-          variant="outline"
-          size="sm"
-          className="w-full"
-        >
-          <Scissors className="h-4 w-4 mr-1.5" />
-          Split at playhead
-        </Button>
-      )}
+      <div className="space-y-2">
+        {onSplit && (
+          <Button
+            onClick={onSplit}
+            disabled={!canSplit}
+            variant="outline"
+            size="sm"
+            className="w-full"
+          >
+            <Scissors className="h-4 w-4 mr-1.5" />
+            Split at playhead
+          </Button>
+        )}
+        {onExtractAudio && clip.kind === "video" && (
+          <Button
+            onClick={onExtractAudio}
+            disabled={extracting}
+            variant="outline"
+            size="sm"
+            className="w-full"
+          >
+            {extracting ? (
+              <Loader2 className="h-4 w-4 mr-1.5 animate-spin" />
+            ) : (
+              <AudioLines className="h-4 w-4 mr-1.5" />
+            )}
+            {extracting ? "Extracting..." : "Extract audio as track"}
+          </Button>
+        )}
+      </div>
     </div>
   );
 };
