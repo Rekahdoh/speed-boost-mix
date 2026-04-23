@@ -80,7 +80,8 @@ export const MultiClipPreview = ({
 
   useEffect(() => {
     if (videoEl) videoEl.playbackRate = speed;
-    trackAudioMapRef.current.forEach((t) => (t.el.playbackRate = speed));
+    // Music tracks always play at 1x — speed only affects the video.
+    trackAudioMapRef.current.forEach((t) => (t.el.playbackRate = 1));
   }, [speed, videoEl]);
 
   // Manage music audio elements
@@ -102,7 +103,7 @@ export const MultiClipPreview = ({
       const el = new Audio(url);
       el.crossOrigin = "anonymous";
       el.preload = "auto";
-      el.playbackRate = speed;
+      el.playbackRate = 1; // music never affected by speed
       try {
         const src = ctx.createMediaElementSource(el);
         const gain = ctx.createGain();
