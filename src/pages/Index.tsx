@@ -168,7 +168,40 @@ const Index = () => {
     toast.success("Clip split");
   }, []);
 
-  const updateTrack = useCallback((id: string, patch: Partial<MusicTrack>) => {
+  const handleExtractAudio = useCallback(
+    async (clip: MediaClip) => {
+      if (clip.kind !== "video") return;
+      setExtractingClipId(clip.id);
+      try {
+        toast.info("Extracting audio... this may take a moment");
+        const audioFile = await extractAudioFromVideo(clip.file);
+        const dur = await getMediaDuration(audioFile, "audio");
+        const total = totalDuration(clips);
+        // Place the new track aligned with the clip's position on the timeline
+        let acc = 0;
+        for (const c of clips) {
+          if (c.id === clip.id) break;
+          acc += clipLength(c);
+        }
+        const start = acc;
+        const end = Math.min(total, start + Math.min(dur, clipLength(clip)));
+        const track = createMusicTrack(audioFile, dur, total);
+        track.timelineStart = start;
+        track.timelineEnd = end;
+        track.volume = 100;
+        track.loop = false;
+        setTracks((prev) => [...prev, track]);
+        setSelectedTrackId(track.id);
+        toast.success("Audio extracted and added as track");
+      } catch (err) {
+        console.error(err);
+        toast.error("Could not extract audio (clip may have no audio)");
+      } finally {
+        setExtractingClipId(null);
+      }
+    },
+    [clips]
+  );
     setTracks((prev) => prev.map((t) => (t.id === id ? { ...t, ...patch } : t)));
   }, []);
 
