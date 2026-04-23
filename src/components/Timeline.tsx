@@ -72,10 +72,69 @@ export const Timeline = ({
     initial: MediaClip;
   } | null>(null);
 
+  const [snapEnabled, setSnapEnabled] = useState(true);
+  const [snapLine, setSnapLine] = useState<number | null>(null);
+
   const pxPerSec = (() => {
     const w = containerRef.current?.clientWidth ?? 600;
     return videoDuration > 0 ? w / videoDuration : 0;
   })();
+
+  /**
+   * Try to snap `value` (in seconds) to one of the provided targets.
+   * Returns the snapped value, or the original if nothing is close enough.
+   * Also reports the snapped target via setSnapLine so we can render a guide.
+   */
+  const snap = useCallback(
+    (value: number, targets: number[], active: boolean): number => {
+      if (!active || pxPerSec === 0) {
+        setSnapLine(null);
+        return value;
+      }
+      const thresholdSec = SNAP_PX / pxPerSec;
+      let best: number | null = null;
+      let bestDist = Infinity;
+      for (const t of targets) {
+        const d = Math.abs(t - value);
+        if (d < bestDist && d <= thresholdSec) {
+          best = t;
+          bestDist = d;
+        }
+      }
+      if (best !== null) {
+        setSnapLine(best);
+        return best;
+      }
+      setSnapLine(null);
+      return value;
+    },
+    [pxPerSec]
+  );
+
+  /** Build the list of snap targets relevant for music drags */
+  const buildMusicSnapTargets = useCallback(
+    (excludeTrackId: string): number[] => {
+      const targets: number[] = [0, videoDuration, currentTime];
+      // Clip boundaries (start/end of each video/image clip)
+      let acc = 0;
+      for (const c of clips) {
+        targets.push(acc);
+        acc += clipLength(c);
+      }
+      targets.push(acc);
+      // Other music track edges
+      for (const t of tracks) {
+        if (t.id === excludeTrackId) continue;
+        targets.push(t.timelineStart, t.timelineEnd);
+      }
+      // Coarse grid
+      for (let g = 0; g <= videoDuration + 0.001; g += GRID_INTERVAL) {
+        targets.push(Math.round(g * 1000) / 1000);
+      }
+      return targets;
+    },
+    [clips, tracks, videoDuration, currentTime]
+  );
 
   const beginDrag = useCallback(
     (e: React.MouseEvent, track: MusicTrack, mode: DragMode) => {
