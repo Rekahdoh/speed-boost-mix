@@ -18,7 +18,7 @@ import { TrackEditor } from "@/components/TrackEditor";
 import { ClipEditor } from "@/components/ClipEditor";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
-import { processVideo } from "@/lib/videoProcessor";
+import { processVideo, extractAudioFromVideo } from "@/lib/videoProcessor";
 import { MusicTrack, createMusicTrack } from "@/types/music";
 import {
   MediaClip,
