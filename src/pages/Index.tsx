@@ -9,22 +9,31 @@ import {
   Wand2,
   Plus,
   Film,
-  X,
+  Image as ImageIcon,
 } from "lucide-react";
-import { FileUpload } from "@/components/FileUpload";
 import { ControlSlider } from "@/components/ControlSlider";
-import { MultiTrackPreview } from "@/components/MultiTrackPreview";
+import { MultiClipPreview } from "@/components/MultiClipPreview";
 import { Timeline } from "@/components/Timeline";
 import { TrackEditor } from "@/components/TrackEditor";
+import { ClipEditor } from "@/components/ClipEditor";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
 import { processVideo } from "@/lib/videoProcessor";
 import { MusicTrack, createMusicTrack } from "@/types/music";
+import {
+  MediaClip,
+  clipLength,
+  createImageClip,
+  createVideoClip,
+  totalDuration,
+} from "@/types/clip";
 import { getMediaDuration } from "@/lib/mediaUtils";
 import { toast } from "sonner";
 
 const Index = () => {
-  const [videoFile, setVideoFile] = useState<File | null>(null);
+  const [clips, setClips] = useState<MediaClip[]>([]);
+  const [selectedClipId, setSelectedClipId] = useState<string | null>(null);
+
   const [videoDuration, setVideoDuration] = useState(0);
   const [currentTime, setCurrentTime] = useState(0);
   const [seekRequest, setSeekRequest] = useState<number | null>(null);
@@ -41,28 +50,52 @@ const Index = () => {
   const [outputUrl, setOutputUrl] = useState<string | null>(null);
 
   const musicInputRef = useRef<HTMLInputElement>(null);
+  const mediaInputRef = useRef<HTMLInputElement>(null);
 
-  // Reset when video changes
+  // Cleanup clip URLs on unmount
   useEffect(() => {
-    if (!videoFile) {
-      setTracks([]);
-      setSelectedTrackId(null);
-      setVideoDuration(0);
-      setCurrentTime(0);
-      setOutputUrl(null);
+    return () => {
+      clips.forEach((c) => URL.revokeObjectURL(c.url));
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const handleAddMedia = async (files: FileList | null) => {
+    if (!files) return;
+    const newClips: MediaClip[] = [];
+    for (const file of Array.from(files)) {
+      try {
+        if (file.type.startsWith("video/")) {
+          const dur = await getMediaDuration(file, "video");
+          newClips.push(createVideoClip(file, dur));
+        } else if (file.type.startsWith("image/")) {
+          newClips.push(createImageClip(file, 3));
+        } else {
+          toast.error(`Unsupported file: ${file.name}`);
+        }
+      } catch {
+        toast.error(`Could not read ${file.name}`);
+      }
     }
-  }, [videoFile]);
+    if (newClips.length) {
+      setClips((prev) => [...prev, ...newClips]);
+      setSelectedClipId(newClips[0].id);
+      toast.success(`Added ${newClips.length} clip${newClips.length > 1 ? "s" : ""}`);
+    }
+  };
 
   const handleAddMusic = async (files: FileList | null) => {
-    if (!files || !videoFile) {
-      if (!videoFile) toast.error("Upload a video first");
+    if (!files) return;
+    if (clips.length === 0) {
+      toast.error("Add a video or image first");
       return;
     }
     const newTracks: MusicTrack[] = [];
+    const dur = totalDuration(clips);
     for (const file of Array.from(files)) {
       try {
-        const dur = await getMediaDuration(file, "audio");
-        newTracks.push(createMusicTrack(file, dur, videoDuration));
+        const d = await getMediaDuration(file, "audio");
+        newTracks.push(createMusicTrack(file, d, dur));
       } catch {
         toast.error(`Could not read ${file.name}`);
       }
@@ -73,6 +106,66 @@ const Index = () => {
       toast.success(`Added ${newTracks.length} track${newTracks.length > 1 ? "s" : ""}`);
     }
   };
+
+  const updateClip = useCallback((id: string, patch: Partial<MediaClip>) => {
+    setClips((prev) => prev.map((c) => (c.id === id ? { ...c, ...patch } : c)));
+  }, []);
+
+  const removeClip = useCallback((id: string) => {
+    setClips((prev) => {
+      const found = prev.find((c) => c.id === id);
+      if (found) URL.revokeObjectURL(found.url);
+      return prev.filter((c) => c.id !== id);
+    });
+    setSelectedClipId((cur) => (cur === id ? null : cur));
+  }, []);
+
+  const splitClip = useCallback((id: string, atLocalTime: number) => {
+    setClips((prev) => {
+      const idx = prev.findIndex((c) => c.id === id);
+      if (idx === -1) return prev;
+      const c = prev[idx];
+      const len = clipLength(c);
+      if (atLocalTime <= 0.05 || atLocalTime >= len - 0.05) {
+        toast.error("Move the playhead inside the clip to split");
+        return prev;
+      }
+      let left: MediaClip;
+      let right: MediaClip;
+      if (c.kind === "video") {
+        const splitAtSource = c.clipStart + atLocalTime;
+        left = {
+          ...c,
+          id: crypto.randomUUID(),
+          clipEnd: splitAtSource,
+          displayDuration: splitAtSource - c.clipStart,
+        };
+        right = {
+          ...c,
+          id: crypto.randomUUID(),
+          clipStart: splitAtSource,
+          displayDuration: c.clipEnd - splitAtSource,
+        };
+      } else {
+        left = {
+          ...c,
+          id: crypto.randomUUID(),
+          displayDuration: atLocalTime,
+          clipEnd: atLocalTime,
+        };
+        right = {
+          ...c,
+          id: crypto.randomUUID(),
+          displayDuration: len - atLocalTime,
+          clipEnd: len - atLocalTime,
+        };
+      }
+      const next = [...prev];
+      next.splice(idx, 1, left, right);
+      return next;
+    });
+    toast.success("Clip split");
+  }, []);
 
   const updateTrack = useCallback((id: string, patch: Partial<MusicTrack>) => {
     setTracks((prev) => prev.map((t) => (t.id === id ? { ...t, ...patch } : t)));
@@ -85,15 +178,31 @@ const Index = () => {
 
   const handleSeek = useCallback((time: number) => {
     setSeekRequest(time);
-    // clear shortly after to allow re-seeking same value
     setTimeout(() => setSeekRequest(null), 50);
   }, []);
 
   const selectedTrack = tracks.find((t) => t.id === selectedTrackId) ?? null;
+  const selectedClip = clips.find((c) => c.id === selectedClipId) ?? null;
+
+  // Determine if playhead is inside selected clip (for split button)
+  const playheadInfo = (() => {
+    let acc = 0;
+    for (let i = 0; i < clips.length; i++) {
+      const len = clipLength(clips[i]);
+      if (currentTime >= acc && currentTime < acc + len) {
+        return { clip: clips[i], localTime: currentTime - acc };
+      }
+      acc += len;
+    }
+    return null;
+  })();
+
+  const canSplitSelected =
+    !!selectedClip && playheadInfo?.clip.id === selectedClip.id;
 
   const handleProcess = async () => {
-    if (!videoFile) {
-      toast.error("Please upload a video first");
+    if (clips.length === 0) {
+      toast.error("Add at least one video or image clip");
       return;
     }
     setProcessing(true);
@@ -103,11 +212,10 @@ const Index = () => {
 
     try {
       const blob = await processVideo({
-        videoFile,
+        clips,
         tracks,
         speed,
         videoVolume,
-        videoDuration,
         onProgress: (r) => {
           setProgress(Math.round(r * 100));
           setStatusMsg("Encoding video...");
@@ -134,10 +242,12 @@ const Index = () => {
     a.click();
   };
 
+  const empty = clips.length === 0;
+
   return (
     <div className="min-h-screen">
       <header className="border-b border-border/50 backdrop-blur-sm bg-background/80 sticky top-0 z-20">
-        <div className="container max-w-7xl py-4 flex items-center justify-between">
+        <div className="container py-4 flex items-center justify-between">
           <div className="flex items-center gap-3">
             <div className="h-10 w-10 rounded-xl gradient-primary flex items-center justify-center shadow-glow">
               <Wand2 className="h-5 w-5 text-primary-foreground" />
@@ -156,49 +266,65 @@ const Index = () => {
         </div>
       </header>
 
-      <main className="container max-w-7xl py-6 md:py-10 space-y-6">
-        {!videoFile ? (
+      <input
+        ref={mediaInputRef}
+        type="file"
+        accept="video/*,image/*"
+        multiple
+        className="hidden"
+        onChange={(e) => {
+          handleAddMedia(e.target.files);
+          e.target.value = "";
+        }}
+      />
+      <input
+        ref={musicInputRef}
+        type="file"
+        accept="audio/*"
+        multiple
+        className="hidden"
+        onChange={(e) => {
+          handleAddMusic(e.target.files);
+          e.target.value = "";
+        }}
+      />
+
+      <main className="container py-6 md:py-10 space-y-6">
+        {empty ? (
           <>
             <div className="text-center mb-8 space-y-3">
               <h2 className="text-3xl md:text-5xl font-bold tracking-tight">
                 Multi-track video <span className="gradient-text">editor</span>
               </h2>
               <p className="text-muted-foreground max-w-2xl mx-auto">
-                Add multiple music layers, place them anywhere on the timeline,
-                trim, fade, and boost — just like InShot, but in your browser.
+                Add videos, images, and music. Trim, split, and arrange clips on
+                a timeline — just like InShot, but in your browser.
               </p>
             </div>
             <div className="max-w-xl mx-auto">
-              <FileUpload type="video" file={videoFile} onFileSelect={setVideoFile} />
+              <button
+                onClick={() => mediaInputRef.current?.click()}
+                className="w-full rounded-2xl border-2 border-dashed border-border hover:border-primary/50 hover:bg-secondary/50 p-10 flex flex-col items-center gap-3 transition-smooth"
+              >
+                <div className="h-14 w-14 rounded-2xl gradient-primary flex items-center justify-center shadow-glow">
+                  <Plus className="h-7 w-7 text-primary-foreground" />
+                </div>
+                <div>
+                  <p className="font-semibold">Add videos or images</p>
+                  <p className="text-sm text-muted-foreground mt-1">
+                    MP4, WebM, MOV, JPG, PNG, WebP
+                  </p>
+                </div>
+              </button>
             </div>
           </>
         ) : (
           <div className="grid lg:grid-cols-[1fr_360px] gap-6">
             {/* LEFT: Preview + Timeline */}
             <div className="space-y-4 min-w-0">
-              <div className="flex items-center gap-3">
-                <div className="h-9 w-9 rounded-lg gradient-primary flex items-center justify-center shrink-0">
-                  <Film className="h-4 w-4 text-primary-foreground" />
-                </div>
-                <div className="flex-1 min-w-0">
-                  <p className="text-sm font-medium truncate">{videoFile.name}</p>
-                  <p className="text-xs text-muted-foreground">
-                    {(videoFile.size / 1024 / 1024).toFixed(1)} MB
-                  </p>
-                </div>
-                <Button
-                  size="sm"
-                  variant="ghost"
-                  onClick={() => setVideoFile(null)}
-                >
-                  <X className="h-4 w-4 mr-1" />
-                  Change
-                </Button>
-              </div>
-
-              <MultiTrackPreview
-                videoFile={videoFile}
-                tracks={tracks}
+              <MultiClipPreview
+                clips={clips}
+                musicTracks={tracks}
                 speed={speed}
                 videoVolume={videoVolume}
                 onTimeUpdate={setCurrentTime}
@@ -206,40 +332,44 @@ const Index = () => {
                 seekRequest={seekRequest}
               />
 
-              <div className="flex items-center justify-between gap-3">
+              <div className="flex items-center justify-between gap-3 flex-wrap">
                 <h3 className="text-sm font-semibold text-muted-foreground uppercase tracking-wider flex items-center gap-2">
-                  <Music className="h-4 w-4" />
+                  <Film className="h-4 w-4" />
                   Timeline
                 </h3>
-                <input
-                  ref={musicInputRef}
-                  type="file"
-                  accept="audio/*"
-                  multiple
-                  className="hidden"
-                  onChange={(e) => {
-                    handleAddMusic(e.target.files);
-                    e.target.value = "";
-                  }}
-                />
-                <Button
-                  size="sm"
-                  onClick={() => musicInputRef.current?.click()}
-                  className="gradient-primary text-primary-foreground border-0 hover:opacity-90"
-                >
-                  <Plus className="h-4 w-4 mr-1" />
-                  Add Music
-                </Button>
+                <div className="flex items-center gap-2">
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => mediaInputRef.current?.click()}
+                  >
+                    <ImageIcon className="h-4 w-4 mr-1" />
+                    Add Media
+                  </Button>
+                  <Button
+                    size="sm"
+                    onClick={() => musicInputRef.current?.click()}
+                    className="gradient-primary text-primary-foreground border-0 hover:opacity-90"
+                  >
+                    <Music className="h-4 w-4 mr-1" />
+                    Add Music
+                  </Button>
+                </div>
               </div>
 
               <Timeline
-                videoDuration={videoDuration}
+                clips={clips}
+                selectedClipId={selectedClipId}
+                onSelectClip={setSelectedClipId}
+                onUpdateClip={updateClip}
+                onRemoveClip={removeClip}
+                onSplitClip={splitClip}
                 currentTime={currentTime}
                 tracks={tracks}
-                selectedId={selectedTrackId}
-                onSelect={setSelectedTrackId}
-                onUpdate={updateTrack}
-                onRemove={removeTrack}
+                selectedTrackId={selectedTrackId}
+                onSelectTrack={setSelectedTrackId}
+                onUpdateTrack={updateTrack}
+                onRemoveTrack={removeTrack}
                 onSeek={handleSeek}
               />
             </div>
@@ -275,6 +405,24 @@ const Index = () => {
               />
 
               <h3 className="text-sm font-semibold text-muted-foreground uppercase tracking-wider flex items-center gap-2 pt-2">
+                <Film className="h-4 w-4" />
+                Selected Clip
+              </h3>
+
+              <ClipEditor
+                clip={selectedClip}
+                onUpdate={(patch) =>
+                  selectedClip && updateClip(selectedClip.id, patch)
+                }
+                onSplit={() => {
+                  if (selectedClip && playheadInfo?.clip.id === selectedClip.id) {
+                    splitClip(selectedClip.id, playheadInfo.localTime);
+                  }
+                }}
+                canSplit={canSplitSelected}
+              />
+
+              <h3 className="text-sm font-semibold text-muted-foreground uppercase tracking-wider flex items-center gap-2 pt-2">
                 <Music className="h-4 w-4" />
                 Selected Track
               </h3>
@@ -303,7 +451,7 @@ const Index = () => {
 
                 <Button
                   onClick={handleProcess}
-                  disabled={!videoFile || processing}
+                  disabled={empty || processing}
                   size="lg"
                   className="w-full gradient-primary text-primary-foreground hover:opacity-90 shadow-glow border-0 h-12 text-base font-semibold"
                 >
