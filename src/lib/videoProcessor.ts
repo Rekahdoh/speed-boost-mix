@@ -131,8 +131,10 @@ export const processVideo = async ({
     ]);
   }
 
-  const data = await ffmpeg.readFile(outputVideo);
-  const blob = new Blob([data as Uint8Array], { type: "video/mp4" });
+  const data = (await ffmpeg.readFile(outputVideo)) as Uint8Array;
+  const buffer = new ArrayBuffer(data.byteLength);
+  new Uint8Array(buffer).set(data);
+  const blob = new Blob([buffer], { type: "video/mp4" });
 
   // cleanup
   try {
