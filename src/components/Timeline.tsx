@@ -1,21 +1,30 @@
 import { useRef, useState, useCallback } from "react";
-import { Music, X } from "lucide-react";
+import { Music, X, Film, Image as ImageIcon, Scissors } from "lucide-react";
 import { MusicTrack } from "@/types/music";
+import { MediaClip, clipLength, totalDuration } from "@/types/clip";
 import { formatTime } from "@/lib/mediaUtils";
 import { cn } from "@/lib/utils";
+import { Button } from "@/components/ui/button";
 
 interface TimelineProps {
-  videoDuration: number;
+  clips: MediaClip[];
+  selectedClipId: string | null;
+  onSelectClip: (id: string) => void;
+  onUpdateClip: (id: string, patch: Partial<MediaClip>) => void;
+  onRemoveClip: (id: string) => void;
+  onSplitClip: (id: string, atLocalTime: number) => void;
+
   currentTime: number;
   tracks: MusicTrack[];
-  selectedId: string | null;
-  onSelect: (id: string) => void;
-  onUpdate: (id: string, patch: Partial<MusicTrack>) => void;
-  onRemove: (id: string) => void;
+  selectedTrackId: string | null;
+  onSelectTrack: (id: string) => void;
+  onUpdateTrack: (id: string, patch: Partial<MusicTrack>) => void;
+  onRemoveTrack: (id: string) => void;
   onSeek: (time: number) => void;
 }
 
 type DragMode = "move" | "resize-left" | "resize-right";
+type ClipDragMode = "resize-left" | "resize-right";
 
 const TRACK_COLORS = [
   "from-violet-500 to-fuchsia-500",
@@ -26,21 +35,36 @@ const TRACK_COLORS = [
 ];
 
 export const Timeline = ({
-  videoDuration,
+  clips,
+  selectedClipId,
+  onSelectClip,
+  onUpdateClip,
+  onRemoveClip,
+  onSplitClip,
   currentTime,
   tracks,
-  selectedId,
-  onSelect,
-  onUpdate,
-  onRemove,
+  selectedTrackId,
+  onSelectTrack,
+  onUpdateTrack,
+  onRemoveTrack,
   onSeek,
 }: TimelineProps) => {
   const containerRef = useRef<HTMLDivElement>(null);
+
+  const videoDuration = totalDuration(clips);
+
   const [dragState, setDragState] = useState<{
     id: string;
     mode: DragMode;
     startX: number;
     initial: MusicTrack;
+  } | null>(null);
+
+  const [clipDrag, setClipDrag] = useState<{
+    id: string;
+    mode: ClipDragMode;
+    startX: number;
+    initial: MediaClip;
   } | null>(null);
 
   const pxPerSec = (() => {
@@ -52,20 +76,59 @@ export const Timeline = ({
     (e: React.MouseEvent, track: MusicTrack, mode: DragMode) => {
       e.stopPropagation();
       e.preventDefault();
-      onSelect(track.id);
-      setDragState({
-        id: track.id,
-        mode,
-        startX: e.clientX,
-        initial: { ...track },
-      });
+      onSelectTrack(track.id);
+      setDragState({ id: track.id, mode, startX: e.clientX, initial: { ...track } });
     },
-    [onSelect]
+    [onSelectTrack]
+  );
+
+  const beginClipDrag = useCallback(
+    (e: React.MouseEvent, clip: MediaClip, mode: ClipDragMode) => {
+      e.stopPropagation();
+      e.preventDefault();
+      onSelectClip(clip.id);
+      setClipDrag({ id: clip.id, mode, startX: e.clientX, initial: { ...clip } });
+    },
+    [onSelectClip]
   );
 
   const onMouseMove = useCallback(
     (e: React.MouseEvent) => {
-      if (!dragState || pxPerSec === 0) return;
+      if (pxPerSec === 0) return;
+
+      if (clipDrag) {
+        const dx = e.clientX - clipDrag.startX;
+        const dt = dx / pxPerSec;
+        const c = clipDrag.initial;
+        if (c.kind === "video") {
+          if (clipDrag.mode === "resize-left") {
+            const newStart = Math.max(0, Math.min(c.clipEnd - 0.1, c.clipStart + dt));
+            onUpdateClip(c.id, {
+              clipStart: newStart,
+              displayDuration: c.clipEnd - newStart,
+            });
+          } else {
+            const newEnd = Math.max(c.clipStart + 0.1, Math.min(c.sourceDuration, c.clipEnd + dt));
+            onUpdateClip(c.id, {
+              clipEnd: newEnd,
+              displayDuration: newEnd - c.clipStart,
+            });
+          }
+        } else {
+          // image: only displayDuration is meaningful
+          if (clipDrag.mode === "resize-left") {
+            // shrink/grow from left = keep right edge fixed; we just shorten duration
+            const newDur = Math.max(0.2, c.displayDuration - dt);
+            onUpdateClip(c.id, { displayDuration: newDur, clipEnd: newDur });
+          } else {
+            const newDur = Math.max(0.2, c.displayDuration + dt);
+            onUpdateClip(c.id, { displayDuration: newDur, clipEnd: newDur });
+          }
+        }
+        return;
+      }
+
+      if (!dragState) return;
       const dx = e.clientX - dragState.startX;
       const dt = dx / pxPerSec;
       const t = dragState.initial;
@@ -75,30 +138,27 @@ export const Timeline = ({
       if (dragState.mode === "move") {
         let newStart = t.timelineStart + dt;
         newStart = Math.max(0, Math.min(videoDuration - len, newStart));
-        onUpdate(t.id, {
-          timelineStart: newStart,
-          timelineEnd: newStart + len,
-        });
+        onUpdateTrack(t.id, { timelineStart: newStart, timelineEnd: newStart + len });
       } else if (dragState.mode === "resize-left") {
         let newStart = t.timelineStart + dt;
         newStart = Math.max(0, Math.min(t.timelineEnd - 0.2, newStart));
-        // shift clipStart so audio content stays anchored to original timeline
         const shift = newStart - t.timelineStart;
         const newClipStart = Math.max(0, Math.min(t.duration - 0.1, t.clipStart + shift));
-        onUpdate(t.id, { timelineStart: newStart, clipStart: newClipStart });
+        onUpdateTrack(t.id, { timelineStart: newStart, clipStart: newClipStart });
       } else if (dragState.mode === "resize-right") {
         let newEnd = t.timelineEnd + dt;
-        const maxEnd = t.loop
-          ? videoDuration
-          : Math.min(videoDuration, t.timelineStart + sourceMax);
+        const maxEnd = t.loop ? videoDuration : Math.min(videoDuration, t.timelineStart + sourceMax);
         newEnd = Math.max(t.timelineStart + 0.2, Math.min(maxEnd, newEnd));
-        onUpdate(t.id, { timelineEnd: newEnd });
+        onUpdateTrack(t.id, { timelineEnd: newEnd });
       }
     },
-    [dragState, pxPerSec, videoDuration, onUpdate]
+    [dragState, clipDrag, pxPerSec, videoDuration, onUpdateTrack, onUpdateClip]
   );
 
-  const endDrag = useCallback(() => setDragState(null), []);
+  const endDrag = useCallback(() => {
+    setDragState(null);
+    setClipDrag(null);
+  }, []);
 
   const handleRulerClick = (e: React.MouseEvent) => {
     if (!containerRef.current || pxPerSec === 0) return;
@@ -107,7 +167,24 @@ export const Timeline = ({
     onSeek(x / pxPerSec);
   };
 
-  // Build ruler ticks
+  // Find which clip the playhead is inside
+  const playheadInClip = (() => {
+    let acc = 0;
+    for (let i = 0; i < clips.length; i++) {
+      const len = clipLength(clips[i]);
+      if (currentTime >= acc && currentTime < acc + len) {
+        return { clip: clips[i], localTime: currentTime - acc };
+      }
+      acc += len;
+    }
+    return null;
+  })();
+
+  const handleSplit = () => {
+    if (!playheadInClip) return;
+    onSplitClip(playheadInClip.clip.id, playheadInClip.localTime);
+  };
+
   const tickInterval = videoDuration > 60 ? 10 : videoDuration > 20 ? 5 : 1;
   const ticks: number[] = [];
   for (let t = 0; t <= videoDuration; t += tickInterval) ticks.push(t);
@@ -115,7 +192,7 @@ export const Timeline = ({
   if (videoDuration === 0) {
     return (
       <div className="rounded-2xl border border-dashed border-border p-6 text-center text-sm text-muted-foreground">
-        Upload a video to see the timeline
+        Add a video or image clip to see the timeline
       </div>
     );
   }
@@ -127,6 +204,20 @@ export const Timeline = ({
       onMouseUp={endDrag}
       onMouseLeave={endDrag}
     >
+      {/* Toolbar */}
+      <div className="flex items-center gap-2 mb-3">
+        <Button
+          size="sm"
+          variant="outline"
+          onClick={handleSplit}
+          disabled={!playheadInClip}
+          className="h-7 text-xs"
+        >
+          <Scissors className="h-3.5 w-3.5 mr-1" />
+          Split at playhead
+        </Button>
+      </div>
+
       {/* Ruler */}
       <div
         ref={containerRef}
@@ -145,25 +236,67 @@ export const Timeline = ({
             </span>
           </div>
         ))}
-        {/* Playhead */}
         <div
           className="absolute top-0 bottom-0 w-0.5 bg-primary z-20 pointer-events-none"
-          style={{
-            left: `${Math.min(100, (currentTime / videoDuration) * 100)}%`,
-          }}
+          style={{ left: `${Math.min(100, (currentTime / videoDuration) * 100)}%` }}
         >
           <div className="absolute -top-1 -left-1.5 w-3 h-3 rounded-full bg-primary shadow-glow" />
         </div>
       </div>
 
-      {/* Video track row */}
-      <div className="relative h-8 mb-2 rounded-md gradient-primary/20 bg-primary/10 border border-primary/20 flex items-center px-3">
-        <span className="text-xs font-medium text-primary">Video</span>
+      {/* Video clip row */}
+      <div className="relative h-12 mb-2 rounded-md bg-secondary/40 border border-border overflow-hidden">
+        {(() => {
+          let acc = 0;
+          return clips.map((c) => {
+            const len = clipLength(c);
+            const leftPct = (acc / videoDuration) * 100;
+            const widthPct = (len / videoDuration) * 100;
+            acc += len;
+            const isSelected = c.id === selectedClipId;
+            const Icon = c.kind === "video" ? Film : ImageIcon;
+            return (
+              <div
+                key={c.id}
+                onClick={() => onSelectClip(c.id)}
+                className={cn(
+                  "absolute top-0 bottom-0 flex items-center px-2 gap-1.5 overflow-hidden",
+                  "bg-gradient-to-r from-primary/60 to-primary/40 cursor-pointer",
+                  "border-r border-background/30",
+                  isSelected && "ring-2 ring-primary ring-inset"
+                )}
+                style={{ left: `${leftPct}%`, width: `${Math.max(1, widthPct)}%` }}
+              >
+                <div
+                  onMouseDown={(e) => beginClipDrag(e, c, "resize-left")}
+                  className="absolute left-0 top-0 bottom-0 w-1.5 cursor-ew-resize bg-white/40 hover:bg-white/70 z-10"
+                />
+                <Icon className="h-3.5 w-3.5 text-primary-foreground shrink-0" />
+                <span className="text-xs font-medium text-primary-foreground truncate">
+                  {c.name}
+                </span>
+                <button
+                  onMouseDown={(e) => e.stopPropagation()}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onRemoveClip(c.id);
+                  }}
+                  className="ml-auto h-5 w-5 rounded hover:bg-black/20 flex items-center justify-center shrink-0 z-10"
+                  aria-label="Remove clip"
+                >
+                  <X className="h-3 w-3 text-primary-foreground" />
+                </button>
+                <div
+                  onMouseDown={(e) => beginClipDrag(e, c, "resize-right")}
+                  className="absolute right-0 top-0 bottom-0 w-1.5 cursor-ew-resize bg-white/40 hover:bg-white/70 z-10"
+                />
+              </div>
+            );
+          });
+        })()}
         <div
-          className="absolute top-0 bottom-0 w-0.5 bg-primary z-10 pointer-events-none"
-          style={{
-            left: `${Math.min(100, (currentTime / videoDuration) * 100)}%`,
-          }}
+          className="absolute top-0 bottom-0 w-0.5 bg-primary z-20 pointer-events-none"
+          style={{ left: `${Math.min(100, (currentTime / videoDuration) * 100)}%` }}
         />
       </div>
 
@@ -176,9 +309,8 @@ export const Timeline = ({
         )}
         {tracks.map((track, idx) => {
           const leftPct = (track.timelineStart / videoDuration) * 100;
-          const widthPct =
-            ((track.timelineEnd - track.timelineStart) / videoDuration) * 100;
-          const isSelected = track.id === selectedId;
+          const widthPct = ((track.timelineEnd - track.timelineStart) / videoDuration) * 100;
+          const isSelected = track.id === selectedTrackId;
           const color = TRACK_COLORS[idx % TRACK_COLORS.length];
           return (
             <div
@@ -187,39 +319,32 @@ export const Timeline = ({
             >
               <div
                 onMouseDown={(e) => beginDrag(e, track, "move")}
-                onClick={() => onSelect(track.id)}
+                onClick={() => onSelectTrack(track.id)}
                 className={cn(
                   "absolute top-0 bottom-0 rounded-md cursor-grab active:cursor-grabbing",
                   "bg-gradient-to-r shadow-md flex items-center px-2 gap-1.5 overflow-hidden",
                   color,
                   isSelected && "ring-2 ring-primary ring-offset-1 ring-offset-background"
                 )}
-                style={{
-                  left: `${leftPct}%`,
-                  width: `${Math.max(2, widthPct)}%`,
-                }}
+                style={{ left: `${leftPct}%`, width: `${Math.max(2, widthPct)}%` }}
               >
-                {/* Resize handle left */}
                 <div
                   onMouseDown={(e) => beginDrag(e, track, "resize-left")}
                   className="absolute left-0 top-0 bottom-0 w-1.5 cursor-ew-resize bg-white/40 hover:bg-white/70 rounded-l-md"
                 />
                 <Music className="h-3.5 w-3.5 text-white shrink-0" />
-                <span className="text-xs font-medium text-white truncate">
-                  {track.name}
-                </span>
+                <span className="text-xs font-medium text-white truncate">{track.name}</span>
                 <button
                   onMouseDown={(e) => e.stopPropagation()}
                   onClick={(e) => {
                     e.stopPropagation();
-                    onRemove(track.id);
+                    onRemoveTrack(track.id);
                   }}
                   className="ml-auto h-5 w-5 rounded hover:bg-black/20 flex items-center justify-center shrink-0 z-10"
                   aria-label="Remove track"
                 >
                   <X className="h-3 w-3 text-white" />
                 </button>
-                {/* Resize handle right */}
                 <div
                   onMouseDown={(e) => beginDrag(e, track, "resize-right")}
                   className="absolute right-0 top-0 bottom-0 w-1.5 cursor-ew-resize bg-white/40 hover:bg-white/70 rounded-r-md"
