@@ -45,6 +45,7 @@ const Index = () => {
   const [videoVolume, setVideoVolume] = useState(100);
 
   const [processing, setProcessing] = useState(false);
+  const [extractingClipId, setExtractingClipId] = useState<string | null>(null);
   const [progress, setProgress] = useState(0);
   const [statusMsg, setStatusMsg] = useState("");
   const [outputUrl, setOutputUrl] = useState<string | null>(null);
