@@ -198,7 +198,7 @@ export const processVideo = async ({
 
     if (c.kind === "video") {
       // Trim and re-encode to uniform format. Add silent audio if missing.
-      await ffmpeg.exec([
+      await run([
         "-ss", c.clipStart.toFixed(3),
         "-i", inputName,
         "-t", len.toFixed(3),
@@ -216,7 +216,7 @@ export const processVideo = async ({
         "-r", String(fps),
         "-y",
         segName,
-      ]);
+      ], `clip ${i + 1}/${clips.length}`);
     } else {
       // Image -> video segment of `len` seconds with silent audio
       await ffmpeg.exec([
