@@ -25,6 +25,7 @@ import {
   QualityPreset,
   QualitySettings,
   QUALITY_PRESETS,
+  resetFFmpeg,
 } from "@/lib/videoProcessor";
 import { MusicTrack, createMusicTrack } from "@/types/music";
 import {
