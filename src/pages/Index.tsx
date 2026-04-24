@@ -16,9 +16,16 @@ import { MultiClipPreview } from "@/components/MultiClipPreview";
 import { Timeline } from "@/components/Timeline";
 import { TrackEditor } from "@/components/TrackEditor";
 import { ClipEditor } from "@/components/ClipEditor";
+import { ExportSettings } from "@/components/ExportSettings";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
-import { processVideo, extractAudioFromVideo } from "@/lib/videoProcessor";
+import {
+  processVideo,
+  extractAudioFromVideo,
+  QualityPreset,
+  QualitySettings,
+  QUALITY_PRESETS,
+} from "@/lib/videoProcessor";
 import { MusicTrack, createMusicTrack } from "@/types/music";
 import {
   MediaClip,
