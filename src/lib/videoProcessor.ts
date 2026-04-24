@@ -33,28 +33,48 @@ export const getFFmpeg = async (
     if (onLog) onLog(message);
   });
 
-  // Try multiple CDNs in order — unpkg is sometimes flaky / rate-limited.
-  const cdns = [
-    "https://cdn.jsdelivr.net/npm/@ffmpeg/core@0.12.6/dist/umd",
-    "https://unpkg.com/@ffmpeg/core@0.12.6/dist/umd",
-    "https://cdn.skypack.dev/@ffmpeg/core@0.12.6/dist/umd",
+  // Load strategy: try self-hosted files first (no CORS, most reliable),
+  // then fall back to jsDelivr/unpkg. Skypack removed — it cannot build this package.
+  const sources: Array<{ label: string; coreURL: string; wasmURL: string; blob: boolean }> = [
+    {
+      label: "self-hosted",
+      coreURL: "/ffmpeg/ffmpeg-core.js",
+      wasmURL: "/ffmpeg/ffmpeg-core.wasm",
+      blob: false,
+    },
+    {
+      label: "jsdelivr",
+      coreURL: "https://cdn.jsdelivr.net/npm/@ffmpeg/core@0.12.6/dist/umd/ffmpeg-core.js",
+      wasmURL: "https://cdn.jsdelivr.net/npm/@ffmpeg/core@0.12.6/dist/umd/ffmpeg-core.wasm",
+      blob: true,
+    },
+    {
+      label: "unpkg",
+      coreURL: "https://unpkg.com/@ffmpeg/core@0.12.6/dist/umd/ffmpeg-core.js",
+      wasmURL: "https://unpkg.com/@ffmpeg/core@0.12.6/dist/umd/ffmpeg-core.wasm",
+      blob: true,
+    },
   ];
 
   let lastErr: unknown = null;
   let loaded = false;
-  for (const baseURL of cdns) {
+  for (const src of sources) {
     try {
-      const [coreURL, wasmURL] = await Promise.all([
-        toBlobURL(`${baseURL}/ffmpeg-core.js`, "text/javascript"),
-        toBlobURL(`${baseURL}/ffmpeg-core.wasm`, "application/wasm"),
-      ]);
+      let coreURL = src.coreURL;
+      let wasmURL = src.wasmURL;
+      if (src.blob) {
+        [coreURL, wasmURL] = await Promise.all([
+          toBlobURL(src.coreURL, "text/javascript"),
+          toBlobURL(src.wasmURL, "application/wasm"),
+        ]);
+      }
       await ffmpeg.load({ coreURL, wasmURL });
       loaded = true;
-      if (onLog) onLog(`FFmpeg core loaded from ${baseURL}`);
+      if (onLog) onLog(`FFmpeg core loaded from ${src.label}`);
       break;
     } catch (err) {
       lastErr = err;
-      if (onLog) onLog(`FFmpeg core failed from ${baseURL}: ${(err as Error)?.message || err}`);
+      if (onLog) onLog(`FFmpeg core failed from ${src.label}: ${(err as Error)?.message || err}`);
     }
   }
 

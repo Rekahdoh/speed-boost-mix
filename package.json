@@ -67,6 +67,7 @@
   },
   "devDependencies": {
     "@eslint/js": "^9.32.0",
+    "@ffmpeg/core": "^0.12.6",
     "@tailwindcss/typography": "^0.5.16",
     "@testing-library/jest-dom": "^6.6.0",
     "@testing-library/react": "^16.0.0",
