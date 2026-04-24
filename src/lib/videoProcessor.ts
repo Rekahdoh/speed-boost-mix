@@ -1,5 +1,5 @@
 import { FFmpeg } from "@ffmpeg/ffmpeg";
-import { fetchFile, toBlobURL } from "@ffmpeg/util";
+import { fetchFile } from "@ffmpeg/util";
 import { MusicTrack } from "@/types/music";
 import { MediaClip, clipLength, totalDuration } from "@/types/clip";
 
@@ -33,26 +33,25 @@ export const getFFmpeg = async (
     if (onLog) onLog(message);
   });
 
-  // Load strategy: try self-hosted files first (no CORS, most reliable),
-  // then fall back to jsDelivr/unpkg. Skypack removed — it cannot build this package.
-  const sources: Array<{ label: string; coreURL: string; wasmURL: string; blob: boolean }> = [
+  // Vite spawns @ffmpeg/ffmpeg's worker as a MODULE worker, so importScripts()
+  // throws inside the worker and it falls back to dynamic import(). That requires
+  // an ESM build of ffmpeg-core (the UMD build cannot be import()-ed and produces
+  // "failed to import ffmpeg-core.js"). We use the ESM build everywhere.
+  const sources: Array<{ label: string; coreURL: string; wasmURL: string }> = [
     {
       label: "self-hosted",
-      coreURL: "/ffmpeg/ffmpeg-core.js",
-      wasmURL: "/ffmpeg/ffmpeg-core.wasm",
-      blob: false,
+      coreURL: new URL("/ffmpeg/ffmpeg-core.esm.js", window.location.origin).href,
+      wasmURL: new URL("/ffmpeg/ffmpeg-core.wasm", window.location.origin).href,
     },
     {
       label: "jsdelivr",
-      coreURL: "https://cdn.jsdelivr.net/npm/@ffmpeg/core@0.12.6/dist/umd/ffmpeg-core.js",
-      wasmURL: "https://cdn.jsdelivr.net/npm/@ffmpeg/core@0.12.6/dist/umd/ffmpeg-core.wasm",
-      blob: true,
+      coreURL: "https://cdn.jsdelivr.net/npm/@ffmpeg/core@0.12.6/dist/esm/ffmpeg-core.js",
+      wasmURL: "https://cdn.jsdelivr.net/npm/@ffmpeg/core@0.12.6/dist/esm/ffmpeg-core.wasm",
     },
     {
       label: "unpkg",
-      coreURL: "https://unpkg.com/@ffmpeg/core@0.12.6/dist/umd/ffmpeg-core.js",
-      wasmURL: "https://unpkg.com/@ffmpeg/core@0.12.6/dist/umd/ffmpeg-core.wasm",
-      blob: true,
+      coreURL: "https://unpkg.com/@ffmpeg/core@0.12.6/dist/esm/ffmpeg-core.js",
+      wasmURL: "https://unpkg.com/@ffmpeg/core@0.12.6/dist/esm/ffmpeg-core.wasm",
     },
   ];
 
@@ -60,15 +59,10 @@ export const getFFmpeg = async (
   let loaded = false;
   for (const src of sources) {
     try {
-      let coreURL = src.coreURL;
-      let wasmURL = src.wasmURL;
-      if (src.blob) {
-        [coreURL, wasmURL] = await Promise.all([
-          toBlobURL(src.coreURL, "text/javascript"),
-          toBlobURL(src.wasmURL, "application/wasm"),
-        ]);
-      }
-      await ffmpeg.load({ coreURL, wasmURL });
+      // Use direct URLs (no blob conversion). The ESM core uses dynamic import()
+      // inside the worker, which works with absolute http(s) URLs but not blob URLs
+      // for cross-origin scripts.
+      await ffmpeg.load({ coreURL: src.coreURL, wasmURL: src.wasmURL });
       loaded = true;
       if (onLog) onLog(`FFmpeg core loaded from ${src.label}`);
       break;
