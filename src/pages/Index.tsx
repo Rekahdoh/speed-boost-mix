@@ -262,11 +262,14 @@ const Index = () => {
     setOutputUrl(null);
 
     try {
+      const activeQuality =
+        qualityPreset === "original" ? customQuality : QUALITY_PRESETS[qualityPreset];
       const blob = await processVideo({
         clips,
         tracks,
         speed,
         videoVolume,
+        quality: activeQuality,
         onProgress: (r) => {
           setProgress(Math.round(r * 100));
           setStatusMsg("Encoding video...");
