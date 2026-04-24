@@ -132,12 +132,18 @@ export const processVideo = async ({
   tracks,
   speed,
   videoVolume,
-  width = 1280,
-  height = 720,
+  quality = QUALITY_PRESETS.high,
   onProgress,
   onLog,
 }: ProcessOptions): Promise<Blob> => {
   if (clips.length === 0) throw new Error("No clips to process");
+
+  // Compute width from height keeping 16:9, force even numbers (libx264 requirement)
+  const height = Math.max(2, Math.round(quality.height / 2) * 2);
+  const width = Math.max(2, Math.round((height * 16) / 9 / 2) * 2);
+  const fps = quality.fps;
+  const vBitrate = `${quality.videoBitrateKbps}k`;
+  const aBitrate = `${quality.audioBitrateKbps}k`;
 
   const ffmpeg = await getFFmpeg(onLog);
 
