@@ -321,7 +321,7 @@ export const processVideo = async ({
 
   const filterComplex = filters.join(";");
 
-  await ffmpeg.exec([
+  await run([
     "-i", "concat.mp4",
     ...writtenTracks.flatMap(({ filename }) => ["-i", filename]),
     "-filter_complex", filterComplex,
@@ -339,7 +339,7 @@ export const processVideo = async ({
     "-shortest",
     "-y",
     "output.mp4",
-  ]);
+  ], "final encode");
 
   const data = (await ffmpeg.readFile("output.mp4")) as Uint8Array;
   const buffer = new ArrayBuffer(data.byteLength);
