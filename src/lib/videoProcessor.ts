@@ -4,14 +4,34 @@ import { MusicTrack } from "@/types/music";
 import { MediaClip, clipLength, totalDuration } from "@/types/clip";
 
 let ffmpegInstance: FFmpeg | null = null;
+let lastFFmpegError = "";
+
+export const resetFFmpeg = () => {
+  try {
+    ffmpegInstance?.terminate();
+  } catch {}
+  ffmpegInstance = null;
+};
 
 export const getFFmpeg = async (
   onLog?: (msg: string) => void
 ): Promise<FFmpeg> => {
-  if (ffmpegInstance && ffmpegInstance.loaded) return ffmpegInstance;
+  if (ffmpegInstance && ffmpegInstance.loaded) {
+    if (onLog) {
+      ffmpegInstance.off("log", () => {});
+      ffmpegInstance.on("log", ({ message }) => {
+        lastFFmpegError = message;
+        onLog(message);
+      });
+    }
+    return ffmpegInstance;
+  }
 
   const ffmpeg = new FFmpeg();
-  if (onLog) ffmpeg.on("log", ({ message }) => onLog(message));
+  ffmpeg.on("log", ({ message }) => {
+    lastFFmpegError = message;
+    if (onLog) onLog(message);
+  });
 
   const baseURL = "https://unpkg.com/@ffmpeg/core@0.12.6/dist/umd";
   await ffmpeg.load({
@@ -22,6 +42,8 @@ export const getFFmpeg = async (
   ffmpegInstance = ffmpeg;
   return ffmpeg;
 };
+
+export const getLastFFmpegError = () => lastFFmpegError;
 
 /**
  * Extract the audio track from a video file as an MP3 File.
@@ -153,6 +175,16 @@ export const processVideo = async ({
     });
   }
 
+  // Helper: run ffmpeg.exec and throw with the last log line on non-zero exit
+  const run = async (args: string[], stage: string) => {
+    lastFFmpegError = "";
+    const code = await ffmpeg.exec(args);
+    if (code !== 0) {
+      const msg = lastFFmpegError || `exit code ${code}`;
+      throw new Error(`[${stage}] FFmpeg failed: ${msg}`);
+    }
+  };
+
   // Step 1: write each clip to FFmpeg FS and pre-process to a uniform mp4 segment
   const segmentFiles: string[] = [];
   for (let i = 0; i < clips.length; i++) {
@@ -166,7 +198,7 @@ export const processVideo = async ({
 
     if (c.kind === "video") {
       // Trim and re-encode to uniform format. Add silent audio if missing.
-      await ffmpeg.exec([
+      await run([
         "-ss", c.clipStart.toFixed(3),
         "-i", inputName,
         "-t", len.toFixed(3),
@@ -184,10 +216,10 @@ export const processVideo = async ({
         "-r", String(fps),
         "-y",
         segName,
-      ]);
+      ], `clip ${i + 1}/${clips.length}`);
     } else {
       // Image -> video segment of `len` seconds with silent audio
-      await ffmpeg.exec([
+      await run([
         "-loop", "1",
         "-t", len.toFixed(3),
         "-i", inputName,
@@ -203,7 +235,7 @@ export const processVideo = async ({
         "-r", String(fps),
         "-y",
         segName,
-      ]);
+      ], `image ${i + 1}/${clips.length}`);
     }
 
     await ffmpeg.deleteFile(inputName);
@@ -214,14 +246,14 @@ export const processVideo = async ({
   const concatList = segmentFiles.map((f) => `file '${f}'`).join("\n");
   await ffmpeg.writeFile("concat.txt", new TextEncoder().encode(concatList));
 
-  await ffmpeg.exec([
+  await run([
     "-f", "concat",
     "-safe", "0",
     "-i", "concat.txt",
     "-c", "copy",
     "-y",
     "concat.mp4",
-  ]);
+  ], "concat");
 
   // Step 3: write music files
   const writtenTracks: { track: MusicTrack; filename: string; index: number }[] = [];
@@ -289,7 +321,7 @@ export const processVideo = async ({
 
   const filterComplex = filters.join(";");
 
-  await ffmpeg.exec([
+  await run([
     "-i", "concat.mp4",
     ...writtenTracks.flatMap(({ filename }) => ["-i", filename]),
     "-filter_complex", filterComplex,
@@ -307,7 +339,7 @@ export const processVideo = async ({
     "-shortest",
     "-y",
     "output.mp4",
-  ]);
+  ], "final encode");
 
   const data = (await ffmpeg.readFile("output.mp4")) as Uint8Array;
   const buffer = new ArrayBuffer(data.byteLength);
