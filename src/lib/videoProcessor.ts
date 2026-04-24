@@ -33,26 +33,25 @@ export const getFFmpeg = async (
     if (onLog) onLog(message);
   });
 
-  // Load strategy: try self-hosted files first (no CORS, most reliable),
-  // then fall back to jsDelivr/unpkg. Skypack removed — it cannot build this package.
-  const sources: Array<{ label: string; coreURL: string; wasmURL: string; blob: boolean }> = [
+  // Load strategy: self-hosted first (avoids CDN flakiness), then CDN fallbacks.
+  // All sources use toBlobURL — FFmpeg requires blob URLs for both JS and WASM,
+  // even when the files are served from the same origin.
+  // Skypack is removed — it cannot build @ffmpeg/core at all.
+  const sources = [
     {
       label: "self-hosted",
-      coreURL: "/ffmpeg/ffmpeg-core.js",
-      wasmURL: "/ffmpeg/ffmpeg-core.wasm",
-      blob: false,
+      coreURL: `${window.location.origin}/ffmpeg/ffmpeg-core.js`,
+      wasmURL: `${window.location.origin}/ffmpeg/ffmpeg-core.wasm`,
     },
     {
       label: "jsdelivr",
       coreURL: "https://cdn.jsdelivr.net/npm/@ffmpeg/core@0.12.6/dist/umd/ffmpeg-core.js",
       wasmURL: "https://cdn.jsdelivr.net/npm/@ffmpeg/core@0.12.6/dist/umd/ffmpeg-core.wasm",
-      blob: true,
     },
     {
       label: "unpkg",
       coreURL: "https://unpkg.com/@ffmpeg/core@0.12.6/dist/umd/ffmpeg-core.js",
       wasmURL: "https://unpkg.com/@ffmpeg/core@0.12.6/dist/umd/ffmpeg-core.wasm",
-      blob: true,
     },
   ];
 
@@ -60,14 +59,10 @@ export const getFFmpeg = async (
   let loaded = false;
   for (const src of sources) {
     try {
-      let coreURL = src.coreURL;
-      let wasmURL = src.wasmURL;
-      if (src.blob) {
-        [coreURL, wasmURL] = await Promise.all([
-          toBlobURL(src.coreURL, "text/javascript"),
-          toBlobURL(src.wasmURL, "application/wasm"),
-        ]);
-      }
+      const [coreURL, wasmURL] = await Promise.all([
+        toBlobURL(src.coreURL, "text/javascript"),
+        toBlobURL(src.wasmURL, "application/wasm"),
+      ]);
       await ffmpeg.load({ coreURL, wasmURL });
       loaded = true;
       if (onLog) onLog(`FFmpeg core loaded from ${src.label}`);
