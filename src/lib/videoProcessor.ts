@@ -175,6 +175,16 @@ export const processVideo = async ({
     });
   }
 
+  // Helper: run ffmpeg.exec and throw with the last log line on non-zero exit
+  const run = async (args: string[], stage: string) => {
+    lastFFmpegError = "";
+    const code = await ffmpeg.exec(args);
+    if (code !== 0) {
+      const msg = lastFFmpegError || `exit code ${code}`;
+      throw new Error(`[${stage}] FFmpeg failed: ${msg}`);
+    }
+  };
+
   // Step 1: write each clip to FFmpeg FS and pre-process to a uniform mp4 segment
   const segmentFiles: string[] = [];
   for (let i = 0; i < clips.length; i++) {
