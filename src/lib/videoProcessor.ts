@@ -60,13 +60,52 @@ export const extractAudioFromVideo = async (
   return new File([buffer], `${baseName} - audio.mp3`, { type: "audio/mpeg" });
 };
 
+export type QualityPreset = "low" | "medium" | "high" | "original";
+
+export interface QualitySettings {
+  /** Output height in pixels (width is computed to keep 16:9). */
+  height: number;
+  /** Video bitrate in kbps */
+  videoBitrateKbps: number;
+  /** Audio bitrate in kbps */
+  audioBitrateKbps: number;
+  /** Frame rate */
+  fps: number;
+}
+
+export const QUALITY_PRESETS: Record<Exclude<QualityPreset, "original">, QualitySettings> = {
+  low:    { height: 360,  videoBitrateKbps: 500,  audioBitrateKbps: 96,  fps: 24 },
+  medium: { height: 540,  videoBitrateKbps: 1200, audioBitrateKbps: 128, fps: 30 },
+  high:   { height: 720,  videoBitrateKbps: 2500, audioBitrateKbps: 160, fps: 30 },
+};
+
+/**
+ * Estimate output file size in bytes given duration (seconds) and quality.
+ * Uses bitrate * duration / 8.
+ */
+export const estimateFileSize = (
+  durationSec: number,
+  quality: QualitySettings,
+  hasAudio: boolean
+): number => {
+  const totalKbps = quality.videoBitrateKbps + (hasAudio ? quality.audioBitrateKbps : 0);
+  // kbps -> bits/sec -> bytes
+  return Math.round((totalKbps * 1000 * durationSec) / 8);
+};
+
+export const formatBytes = (bytes: number): string => {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  if (bytes < 1024 * 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+  return `${(bytes / (1024 * 1024 * 1024)).toFixed(2)} GB`;
+};
+
 interface ProcessOptions {
   clips: MediaClip[];
   tracks: MusicTrack[];
   speed: number;
   videoVolume: number;
-  width?: number;
-  height?: number;
+  quality?: QualitySettings;
   onProgress?: (ratio: number) => void;
   onLog?: (msg: string) => void;
 }
