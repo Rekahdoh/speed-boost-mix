@@ -282,8 +282,26 @@ const Index = () => {
       setStatusMsg("Done!");
       toast.success("Video processed successfully");
     } catch (err) {
-      console.error(err);
-      toast.error("Processing failed. Try a smaller file or different format.");
+      console.error("Export failed:", err);
+      const raw = err instanceof Error ? err.message : String(err);
+      const isMemory =
+        /memory|allocation|out of memory|abort|killed|RangeError|maximum/i.test(raw);
+      const isUnsupported = /Invalid data|moov atom|codec|unsupported/i.test(raw);
+
+      // Reset FFmpeg so the next try starts fresh (memory may be poisoned)
+      resetFFmpeg();
+
+      if (isMemory) {
+        toast.error(
+          "Out of memory. Lower the export quality (try Low/360p), trim clips, or split into smaller exports."
+        );
+      } else if (isUnsupported) {
+        toast.error(
+          `Unsupported source media. ${raw.slice(0, 140)}`
+        );
+      } else {
+        toast.error(`Export failed: ${raw.slice(0, 200)}`);
+      }
     } finally {
       setProcessing(false);
     }
