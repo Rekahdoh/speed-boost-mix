@@ -59,15 +59,10 @@ export const getFFmpeg = async (
   let loaded = false;
   for (const src of sources) {
     try {
-      let coreURL = src.coreURL;
-      let wasmURL = src.wasmURL;
-      if (src.blob) {
-        [coreURL, wasmURL] = await Promise.all([
-          toBlobURL(src.coreURL, "text/javascript"),
-          toBlobURL(src.wasmURL, "application/wasm"),
-        ]);
-      }
-      await ffmpeg.load({ coreURL, wasmURL });
+      // Use direct URLs (no blob conversion). The ESM core uses dynamic import()
+      // inside the worker, which works with absolute http(s) URLs but not blob URLs
+      // for cross-origin scripts.
+      await ffmpeg.load({ coreURL: src.coreURL, wasmURL: src.wasmURL });
       loaded = true;
       if (onLog) onLog(`FFmpeg core loaded from ${src.label}`);
       break;
