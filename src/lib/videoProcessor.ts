@@ -246,14 +246,14 @@ export const processVideo = async ({
   const concatList = segmentFiles.map((f) => `file '${f}'`).join("\n");
   await ffmpeg.writeFile("concat.txt", new TextEncoder().encode(concatList));
 
-  await ffmpeg.exec([
+  await run([
     "-f", "concat",
     "-safe", "0",
     "-i", "concat.txt",
     "-c", "copy",
     "-y",
     "concat.mp4",
-  ]);
+  ], "concat");
 
   // Step 3: write music files
   const writtenTracks: { track: MusicTrack; filename: string; index: number }[] = [];
