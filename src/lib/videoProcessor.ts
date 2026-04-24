@@ -33,11 +33,38 @@ export const getFFmpeg = async (
     if (onLog) onLog(message);
   });
 
-  const baseURL = "https://unpkg.com/@ffmpeg/core@0.12.6/dist/umd";
-  await ffmpeg.load({
-    coreURL: await toBlobURL(`${baseURL}/ffmpeg-core.js`, "text/javascript"),
-    wasmURL: await toBlobURL(`${baseURL}/ffmpeg-core.wasm`, "application/wasm"),
-  });
+  // Try multiple CDNs in order — unpkg is sometimes flaky / rate-limited.
+  const cdns = [
+    "https://cdn.jsdelivr.net/npm/@ffmpeg/core@0.12.6/dist/umd",
+    "https://unpkg.com/@ffmpeg/core@0.12.6/dist/umd",
+    "https://cdn.skypack.dev/@ffmpeg/core@0.12.6/dist/umd",
+  ];
+
+  let lastErr: unknown = null;
+  let loaded = false;
+  for (const baseURL of cdns) {
+    try {
+      const [coreURL, wasmURL] = await Promise.all([
+        toBlobURL(`${baseURL}/ffmpeg-core.js`, "text/javascript"),
+        toBlobURL(`${baseURL}/ffmpeg-core.wasm`, "application/wasm"),
+      ]);
+      await ffmpeg.load({ coreURL, wasmURL });
+      loaded = true;
+      if (onLog) onLog(`FFmpeg core loaded from ${baseURL}`);
+      break;
+    } catch (err) {
+      lastErr = err;
+      if (onLog) onLog(`FFmpeg core failed from ${baseURL}: ${(err as Error)?.message || err}`);
+    }
+  }
+
+  if (!loaded) {
+    throw new Error(
+      `Failed to load FFmpeg core from any CDN. Check your internet connection or ad-blocker. Last error: ${
+        (lastErr as Error)?.message || lastErr
+      }`
+    );
+  }
 
   ffmpegInstance = ffmpeg;
   return ffmpeg;
