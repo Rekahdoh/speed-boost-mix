@@ -493,6 +493,15 @@ const Index = () => {
                 }
               />
 
+              <ExportSettings
+                preset={qualityPreset}
+                custom={customQuality}
+                onPresetChange={setQualityPreset}
+                onCustomChange={setCustomQuality}
+                durationSec={totalDuration(clips) / Math.max(0.01, speed)}
+                hasAudio={tracks.length > 0 || videoVolume > 0}
+              />
+
               <div className="gradient-card rounded-2xl p-5 shadow-soft border border-border space-y-4">
                 {processing && (
                   <div className="space-y-2">
