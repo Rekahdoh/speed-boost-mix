@@ -4,14 +4,34 @@ import { MusicTrack } from "@/types/music";
 import { MediaClip, clipLength, totalDuration } from "@/types/clip";
 
 let ffmpegInstance: FFmpeg | null = null;
+let lastFFmpegError = "";
+
+export const resetFFmpeg = () => {
+  try {
+    ffmpegInstance?.terminate();
+  } catch {}
+  ffmpegInstance = null;
+};
 
 export const getFFmpeg = async (
   onLog?: (msg: string) => void
 ): Promise<FFmpeg> => {
-  if (ffmpegInstance && ffmpegInstance.loaded) return ffmpegInstance;
+  if (ffmpegInstance && ffmpegInstance.loaded) {
+    if (onLog) {
+      ffmpegInstance.off("log", () => {});
+      ffmpegInstance.on("log", ({ message }) => {
+        lastFFmpegError = message;
+        onLog(message);
+      });
+    }
+    return ffmpegInstance;
+  }
 
   const ffmpeg = new FFmpeg();
-  if (onLog) ffmpeg.on("log", ({ message }) => onLog(message));
+  ffmpeg.on("log", ({ message }) => {
+    lastFFmpegError = message;
+    if (onLog) onLog(message);
+  });
 
   const baseURL = "https://unpkg.com/@ffmpeg/core@0.12.6/dist/umd";
   await ffmpeg.load({
@@ -22,6 +42,8 @@ export const getFFmpeg = async (
   ffmpegInstance = ffmpeg;
   return ffmpeg;
 };
+
+export const getLastFFmpegError = () => lastFFmpegError;
 
 /**
  * Extract the audio track from a video file as an MP3 File.
