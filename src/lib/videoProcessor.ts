@@ -219,7 +219,7 @@ export const processVideo = async ({
       ], `clip ${i + 1}/${clips.length}`);
     } else {
       // Image -> video segment of `len` seconds with silent audio
-      await ffmpeg.exec([
+      await run([
         "-loop", "1",
         "-t", len.toFixed(3),
         "-i", inputName,
@@ -235,7 +235,7 @@ export const processVideo = async ({
         "-r", String(fps),
         "-y",
         segName,
-      ]);
+      ], `image ${i + 1}/${clips.length}`);
     }
 
     await ffmpeg.deleteFile(inputName);
