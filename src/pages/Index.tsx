@@ -57,6 +57,14 @@ const Index = () => {
   const [statusMsg, setStatusMsg] = useState("");
   const [outputUrl, setOutputUrl] = useState<string | null>(null);
 
+  const [qualityPreset, setQualityPreset] = useState<QualityPreset>("medium");
+  const [customQuality, setCustomQuality] = useState<QualitySettings>({
+    height: 540,
+    videoBitrateKbps: 1200,
+    audioBitrateKbps: 128,
+    fps: 30,
+  });
+
   const musicInputRef = useRef<HTMLInputElement>(null);
   const mediaInputRef = useRef<HTMLInputElement>(null);
 
