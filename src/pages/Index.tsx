@@ -16,9 +16,16 @@ import { MultiClipPreview } from "@/components/MultiClipPreview";
 import { Timeline } from "@/components/Timeline";
 import { TrackEditor } from "@/components/TrackEditor";
 import { ClipEditor } from "@/components/ClipEditor";
+import { ExportSettings } from "@/components/ExportSettings";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
-import { processVideo, extractAudioFromVideo } from "@/lib/videoProcessor";
+import {
+  processVideo,
+  extractAudioFromVideo,
+  QualityPreset,
+  QualitySettings,
+  QUALITY_PRESETS,
+} from "@/lib/videoProcessor";
 import { MusicTrack, createMusicTrack } from "@/types/music";
 import {
   MediaClip,
@@ -49,6 +56,14 @@ const Index = () => {
   const [progress, setProgress] = useState(0);
   const [statusMsg, setStatusMsg] = useState("");
   const [outputUrl, setOutputUrl] = useState<string | null>(null);
+
+  const [qualityPreset, setQualityPreset] = useState<QualityPreset>("medium");
+  const [customQuality, setCustomQuality] = useState<QualitySettings>({
+    height: 540,
+    videoBitrateKbps: 1200,
+    audioBitrateKbps: 128,
+    fps: 30,
+  });
 
   const musicInputRef = useRef<HTMLInputElement>(null);
   const mediaInputRef = useRef<HTMLInputElement>(null);
@@ -247,11 +262,14 @@ const Index = () => {
     setOutputUrl(null);
 
     try {
+      const activeQuality =
+        qualityPreset === "original" ? customQuality : QUALITY_PRESETS[qualityPreset];
       const blob = await processVideo({
         clips,
         tracks,
         speed,
         videoVolume,
+        quality: activeQuality,
         onProgress: (r) => {
           setProgress(Math.round(r * 100));
           setStatusMsg("Encoding video...");
@@ -473,6 +491,15 @@ const Index = () => {
                 onUpdate={(patch) =>
                   selectedTrack && updateTrack(selectedTrack.id, patch)
                 }
+              />
+
+              <ExportSettings
+                preset={qualityPreset}
+                custom={customQuality}
+                onPresetChange={setQualityPreset}
+                onCustomChange={setCustomQuality}
+                durationSec={totalDuration(clips) / Math.max(0.01, speed)}
+                hasAudio={tracks.length > 0 || videoVolume > 0}
               />
 
               <div className="gradient-card rounded-2xl p-5 shadow-soft border border-border space-y-4">

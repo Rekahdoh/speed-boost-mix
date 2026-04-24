@@ -60,13 +60,52 @@ export const extractAudioFromVideo = async (
   return new File([buffer], `${baseName} - audio.mp3`, { type: "audio/mpeg" });
 };
 
+export type QualityPreset = "low" | "medium" | "high" | "original";
+
+export interface QualitySettings {
+  /** Output height in pixels (width is computed to keep 16:9). */
+  height: number;
+  /** Video bitrate in kbps */
+  videoBitrateKbps: number;
+  /** Audio bitrate in kbps */
+  audioBitrateKbps: number;
+  /** Frame rate */
+  fps: number;
+}
+
+export const QUALITY_PRESETS: Record<Exclude<QualityPreset, "original">, QualitySettings> = {
+  low:    { height: 360,  videoBitrateKbps: 500,  audioBitrateKbps: 96,  fps: 24 },
+  medium: { height: 540,  videoBitrateKbps: 1200, audioBitrateKbps: 128, fps: 30 },
+  high:   { height: 720,  videoBitrateKbps: 2500, audioBitrateKbps: 160, fps: 30 },
+};
+
+/**
+ * Estimate output file size in bytes given duration (seconds) and quality.
+ * Uses bitrate * duration / 8.
+ */
+export const estimateFileSize = (
+  durationSec: number,
+  quality: QualitySettings,
+  hasAudio: boolean
+): number => {
+  const totalKbps = quality.videoBitrateKbps + (hasAudio ? quality.audioBitrateKbps : 0);
+  // kbps -> bits/sec -> bytes
+  return Math.round((totalKbps * 1000 * durationSec) / 8);
+};
+
+export const formatBytes = (bytes: number): string => {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  if (bytes < 1024 * 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+  return `${(bytes / (1024 * 1024 * 1024)).toFixed(2)} GB`;
+};
+
 interface ProcessOptions {
   clips: MediaClip[];
   tracks: MusicTrack[];
   speed: number;
   videoVolume: number;
-  width?: number;
-  height?: number;
+  quality?: QualitySettings;
   onProgress?: (ratio: number) => void;
   onLog?: (msg: string) => void;
 }
@@ -93,12 +132,18 @@ export const processVideo = async ({
   tracks,
   speed,
   videoVolume,
-  width = 1280,
-  height = 720,
+  quality = QUALITY_PRESETS.high,
   onProgress,
   onLog,
 }: ProcessOptions): Promise<Blob> => {
   if (clips.length === 0) throw new Error("No clips to process");
+
+  // Compute width from height keeping 16:9, force even numbers (libx264 requirement)
+  const height = Math.max(2, Math.round(quality.height / 2) * 2);
+  const width = Math.max(2, Math.round((height * 16) / 9 / 2) * 2);
+  const fps = quality.fps;
+  const vBitrate = `${quality.videoBitrateKbps}k`;
+  const aBitrate = `${quality.audioBitrateKbps}k`;
 
   const ffmpeg = await getFFmpeg(onLog);
 
@@ -127,7 +172,7 @@ export const processVideo = async ({
         "-t", len.toFixed(3),
         "-f", "lavfi",
         "-i", "anullsrc=channel_layout=stereo:sample_rate=44100",
-        "-vf", `scale=${width}:${height}:force_original_aspect_ratio=decrease,pad=${width}:${height}:(ow-iw)/2:(oh-ih)/2:black,setsar=1,fps=30`,
+        "-vf", `scale=${width}:${height}:force_original_aspect_ratio=decrease,pad=${width}:${height}:(ow-iw)/2:(oh-ih)/2:black,setsar=1,fps=${fps}`,
         "-map", "0:v:0",
         "-map", "1:a:0",
         "-shortest",
@@ -135,8 +180,8 @@ export const processVideo = async ({
         "-preset", "ultrafast",
         "-pix_fmt", "yuv420p",
         "-c:a", "aac",
-        "-b:a", "128k",
-        "-r", "30",
+        "-b:a", aBitrate,
+        "-r", String(fps),
         "-y",
         segName,
       ]);
@@ -149,13 +194,13 @@ export const processVideo = async ({
         "-f", "lavfi",
         "-t", len.toFixed(3),
         "-i", "anullsrc=channel_layout=stereo:sample_rate=44100",
-        "-vf", `scale=${width}:${height}:force_original_aspect_ratio=decrease,pad=${width}:${height}:(ow-iw)/2:(oh-ih)/2:black,setsar=1,fps=30`,
+        "-vf", `scale=${width}:${height}:force_original_aspect_ratio=decrease,pad=${width}:${height}:(ow-iw)/2:(oh-ih)/2:black,setsar=1,fps=${fps}`,
         "-c:v", "libx264",
         "-preset", "ultrafast",
         "-pix_fmt", "yuv420p",
         "-c:a", "aac",
-        "-b:a", "128k",
-        "-r", "30",
+        "-b:a", aBitrate,
+        "-r", String(fps),
         "-y",
         segName,
       ]);
@@ -253,8 +298,12 @@ export const processVideo = async ({
     "-c:v", "libx264",
     "-preset", "ultrafast",
     "-pix_fmt", "yuv420p",
+    "-b:v", vBitrate,
+    "-maxrate", vBitrate,
+    "-bufsize", `${quality.videoBitrateKbps * 2}k`,
     "-c:a", "aac",
-    "-b:a", "192k",
+    "-b:a", aBitrate,
+    "-r", String(fps),
     "-shortest",
     "-y",
     "output.mp4",
